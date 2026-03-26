@@ -1,0 +1,33 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "cc-skills",
+  "description": "实用的 Claude Code Skill 插件合集：百度搜索、文件搜索等",
+  "owner": {
+    "name": "sjerold",
+    "url": "https://github.com/sjerold"
+  },
+  "plugins": [
+    {
+      "name": "baidu-search",
+      "description": "百度搜索增强版：大规模搜索、智能分数筛选、内容抓取、AI总结。适合搜索中文资料、中国本土信息、企业信息、新闻资讯等。",
+      "category": "search",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/sjerold/cc-skills.git",
+        "path": "skills/baidu-search"
+      },
+      "homepage": "https://github.com/sjerold/cc-skills/tree/main/skills/baidu-search"
+    },
+    {
+      "name": "file-searcher",
+      "description": "文件内容搜索插件，支持在 Word (.docx)、PDF、Markdown、文本等文件中搜索关键词。",
+      "category": "productivity",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/sjerold/cc-skills.git",
+        "path": "skills/file-searcher"
+      },
+      "homepage": "https://github.com/sjerold/cc-skills/tree/main/skills/file-searcher"
+    }
+  ]
+}

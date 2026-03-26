@@ -2,31 +2,6 @@
 
 为 Claude Code 提供的实用 Skill 插件集合。
 
-## 目录结构
-
-```
-cc-skills/
-├── skills/
-│   ├── baidu-search/        # 百度搜索 Skill
-│   │   ├── .claude-plugin/
-│   │   │   └── plugin.json
-│   │   ├── scripts/         # Python 脚本
-│   │   ├── skills/
-│   │   │   └── SKILL.md
-│   │   └── requirements.txt
-│   │
-│   └── file-searcher/       # 文件搜索 Skill
-│       ├── .claude-plugin/
-│       │   └── plugin.json
-│       ├── scripts/
-│       ├── skills/
-│       │   └── SKILL.md
-│       └── requirements.txt
-│
-├── install.bat
-└── pack.bat
-```
-
 ## Skill 列表
 
 ### 百度搜索 (baidu-search)
@@ -49,15 +24,20 @@ cc-skills/
 
 ## 安装方法
 
-### 方法一：Claude Code 自动安装（推荐）
+### 方法一：添加 Marketplace 后安装（推荐）
 
-```bash
-# 安装百度搜索
-claude /install https://github.com/sjerold/cc-skills.git#skills/baidu-search
+**步骤 1：添加 Marketplace**
 
-# 安装文件搜索
-claude /install https://github.com/sjerold/cc-skills.git#skills/file-searcher
+在 Claude Code 中运行：
 ```
+/marketplace add https://github.com/sjerold/cc-skills.git
+```
+
+**步骤 2：安装插件**
+```
+/marketplace
+```
+打开 marketplace 界面，找到 `cc-skills`，选择要安装的插件。
 
 ### 方法二：手动安装
 
@@ -65,46 +45,46 @@ claude /install https://github.com/sjerold/cc-skills.git#skills/file-searcher
 # 克隆仓库
 git clone https://github.com/sjerold/cc-skills.git
 
-# 运行安装脚本 (Windows)
-cd cc-skills
-install.bat
+# 复制插件到 Claude 插件目录
+cp -r cc-skills/skills/baidu-search ~/.claude/plugins/
+cp -r cc-skills/skills/file-searcher ~/.claude/plugins/
+
+# 安装 Python 依赖
+pip install -r cc-skills/skills/baidu-search/requirements.txt
+pip install -r cc-skills/skills/file-searcher/requirements.txt
 ```
 
-### 方法三：复制目录
+### 方法三：Windows 一键安装
 
-将 `skills/xxx` 目录复制到：
-- Windows: `C:\Users\<用户名>\.claude\plugins\xxx`
-- Mac/Linux: `~/.claude/plugins/xxx`
+下载仓库后双击 `install.bat`。
+
+## 目录结构
+
+```
+cc-skills/
+├── .claude-plugin/
+│   └── marketplace.json     # Marketplace 配置
+├── skills/
+│   ├── baidu-search/        # 百度搜索 Skill
+│   │   ├── .claude-plugin/
+│   │   │   └── plugin.json
+│   │   ├── skills/
+│   │   │   └── SKILL.md
+│   │   ├── scripts/
+│   │   └── requirements.txt
+│   │
+│   └── file-searcher/       # 文件搜索 Skill
+│       └── ...
+│
+├── install.bat
+└── pack.bat
+```
 
 ## 依赖要求
 
 - Python 3.8+
-- 各 Skill 依赖见其 `requirements.txt`
-
-## 如何添加新 Skill
-
-1. 在 `skills/` 目录下创建新文件夹：
-   ```
-   skills/your-skill/
-   ├── .claude-plugin/
-   │   └── plugin.json    # 必需
-   ├── skills/
-   │   └── SKILL.md       # 必需
-   ├── scripts/           # 可选
-   └── requirements.txt   # 可选
-   ```
-
-2. 在 `plugin.json` 中添加 `repository` 字段：
-   ```json
-   {
-     "name": "your-skill",
-     "repository": {
-       "type": "git",
-       "url": "https://github.com/sjerold/cc-skills.git",
-       "directory": "skills/your-skill"
-     }
-   }
-   ```
+- 百度搜索：`requests`, `beautifulsoup4`
+- 文件搜索：`python-docx`, `PyPDF2`
 
 ## License
 
