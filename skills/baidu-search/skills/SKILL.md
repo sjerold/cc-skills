@@ -11,6 +11,51 @@ argument-hint: <搜索关键词>
 
 一个完整的中文网络搜索解决方案，支持大规模搜索、智能筛选、内容抓取和 AI 总结。
 
+## 环境检查
+
+**在执行搜索前，先检查环境是否已配置：**
+
+```bash
+# 检查 dsbot_env 是否存在
+conda env list | grep dsbot_env
+
+# 如果不存在，运行 setup
+cmd /c "$PLUGIN_DIR/scripts/setup_env.bat"
+```
+
+或者直接运行 setup 命令：
+```bash
+/baidu-setup
+```
+
+## 执行搜索
+
+环境配置完成后，运行：
+
+```bash
+# 获取 Python 路径
+PYTHON_PATH=$(cat "$PLUGIN_DIR/.python_path" 2>/dev/null || echo "")
+
+# 如果没有保存的路径，尝试从 conda 获取
+if [ -z "$PYTHON_PATH" ]; then
+    PYTHON_PATH=$(conda run -n dsbot_env python -c "import sys; print(sys.executable)" 2>/dev/null)
+fi
+
+# 如果还是没有，提示运行 setup
+if [ -z "$PYTHON_PATH" ]; then
+    echo "请先运行 /baidu-setup 安装环境"
+    exit 1
+fi
+
+# 执行搜索
+"$PYTHON_PATH" "$PLUGIN_DIR/scripts/baidu_search.py" "$ARGUMENTS"
+```
+
+**Windows 用户直接运行：**
+```cmd
+cmd /c "if exist %PLUGIN_DIR%\.python_path (set /p PYTHON=<%PLUGIN_DIR%\.python_path) else (set PYTHON=) && if not defined PYTHON (conda run -n dsbot_env python -c \"import sys; print(sys.executable)\" > %TEMP%\python_path.txt && set /p PYTHON=<%TEMP%\python_path.txt) && %PYTHON% %PLUGIN_DIR%\scripts\baidu_search.py %ARGUMENTS%"
+```
+
 ## 核心功能
 
 | 功能 | 说明 |
@@ -22,19 +67,7 @@ argument-hint: <搜索关键词>
 | 本地存档 | 将抓取内容保存到本地文件 |
 | AI 总结 | 调用 LLM 生成内容摘要和关键发现 |
 
-## 快速开始
-
-```bash
-# 基础搜索：搜索100条，返回分数前20%
-%CONDA_PYTHON% "$PLUGIN_DIR/scripts/baidu_search.py" "苏州银行"
-
-# 完整流程：搜索 + 抓取 + 总结 + 存档
-%CONDA_PYTHON% "$PLUGIN_DIR/scripts/baidu_search.py" "苏州银行" -n 150 -f 20 -s -o ~/search_results/suzhoubank
-```
-
-## 脚本说明
-
-### 1. baidu_search.py - 主搜索脚本
+## 参数说明
 
 ```bash
 python baidu_search.py <关键词> [选项]
@@ -50,39 +83,20 @@ python baidu_search.py <关键词> [选项]
   --json             输出JSON格式
 ```
 
-### 2. web_fetcher.py - 网页抓取脚本
-
-支持静态和动态网页抓取。
+## 示例
 
 ```bash
-python web_fetcher.py <URL...> [选项]
+# 基础搜索
+/baidu-search 苏州银行
 
-参数:
-  -d, --dynamic    渲染模式: auto(自动), always(动态), never(静态)
-  -w, --wait       动态渲染等待时间(秒)
-  -t, --timeout    请求超时(秒)
-  -o, --output     保存目录
-  --max-workers    并发数
-```
+# 搜索200条，筛选前15%，抓取15个，总结
+/baidu-search 人工智能发展趋势 -n 200 -t 15 -f 15 -s -o ./ai_trend
 
-### 3. ai_summarizer.py - AI总结脚本
-
-对本地文件或文本内容进行 AI 总结。
-
-```bash
-python ai_summarizer.py <主题> [选项]
-
-参数:
-  -i, --input    输入文件或目录
-  -t, --text     直接输入文本
-  -s, --style    总结风格: comprehensive/brief/extract
-  --analyze      深度分析模式
-  -o, --output   输出文件
+# 只搜索和筛选
+/baidu-search 苏州银行 公司简介 -n 100 -t 20
 ```
 
 ## 质量评分规则
-
-系统根据网站类型自动计算质量分数：
 
 | 类型 | 示例 | 分数倍率 |
 |-----|------|---------|
@@ -101,7 +115,3 @@ export LLM_API_KEY="your-api-key"
 export LLM_API_BASE="https://api.openai.com/v1"
 export LLM_MODEL="gpt-3.5-turbo"
 ```
-
-## 依赖安装
-
-运行 install.bat 自动安装 Miniconda 和 dsbot_env 环境。
