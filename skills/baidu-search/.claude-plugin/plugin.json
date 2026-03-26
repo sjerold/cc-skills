@@ -1,16 +1,17 @@
 {
   "name": "baidu-search",
-  "description": "百度搜索插件，提供中文网络搜索能力。使用百度搜索引擎进行中文内容搜索，返回结构化搜索结果。",
   "version": "1.0.0",
+  "description": "百度搜索增强版：大规模搜索、智能分数筛选、内容抓取、AI总结。适合搜索中文资料、中国本土信息、企业信息、新闻资讯等。",
   "author": {
-    "name": "Claude User"
+    "name": "sjerold",
+    "url": "https://github.com/sjerold"
   },
-  "skills": ["./skills/baidu-search"],
-  "keywords": [
-    "baidu",
-    "search",
-    "chinese",
-    "web-search",
-    "中文搜索"
-  ]
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sjerold/cc-skills.git",
+    "directory": "skills/baidu-search"
+  },
+  "license": "MIT",
+  "keywords": ["baidu", "search", "chinese", "web-search", "中文搜索"],
+  "skills": ["./skills"]
 }
