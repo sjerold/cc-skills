@@ -1,7 +1,6 @@
 ---
 name: gongwen-writer
 description: This skill should be used when the user asks to "写公文", "撰写公文", "起草文件", "创建Word公文", or needs to write official documents in standard Chinese government format. Provides guidance for creating properly formatted official documents (公文) in Word format.
-version: 1.1.1
 ---
 
 # 公文写作技能
