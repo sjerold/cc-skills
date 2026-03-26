@@ -1,7 +1,7 @@
 ---
 name: gongwen-writer
 description: This skill should be used when the user asks to "写公文", "撰写公文", "起草文件", "创建Word公文", or needs to write official documents in standard Chinese government format. Provides guidance for creating properly formatted official documents (公文) in Word format.
-version: 1.1.0
+version: 1.1.1
 ---
 
 # 公文写作技能
@@ -174,7 +174,8 @@ version: 1.1.0
 ### 十五、页码
 
 - 字体: 4号宋体
-- 格式: 阿拉伯数字，左右各放一条一字线
+- 数字: 阿拉伯数字使用 **Times New Roman** 字体
+- 格式: 数字左右各放一条一字线，如 "- 1 -"
 - 位置: 公文版心下边缘之下居中
 - 一字线距版心下边缘: 约7mm
 - 附件与正文一起装订时: 页码连续编排
