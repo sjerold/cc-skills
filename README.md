@@ -40,69 +40,36 @@
 
 ### 步骤 3：安装依赖环境
 
-安装插件后，运行 setup 命令安装 Python 环境：
+安装插件后，运行对应命令安装 Python 环境：
 
 ```
-/baidu-search:setup
+/baidu-setup
 ```
 
 或
 
 ```
-/file-searcher:setup
+/file-setup
 ```
 
-setup 命令会自动：
+命令会自动：
 - 检测/安装 Miniconda
 - 创建 `dsbot_env` Conda 环境
 - 安装所需 Python 依赖
 
 ## 更新插件
 
+通过 Marketplace 更新：
+
 ```
 /marketplace
 ```
 
-打开 Marketplace 界面，找到已安装的插件，点击更新。
-
-更新后如需更新依赖，重新运行 setup 命令：
+找到已安装的插件，点击更新。更新后重新运行 setup 命令更新依赖：
 
 ```
-/baidu-search:setup
+/baidu-setup
 ```
-
-## 目录结构
-
-```
-cc-skills/
-├── .claude-plugin/
-│   └── marketplace.json
-├── skills/
-│   ├── baidu-search/
-│   │   ├── .claude-plugin/
-│   │   │   └── plugin.json
-│   │   ├── commands/
-│   │   │   └── setup.md        # /baidu-search:setup 命令
-│   │   ├── skills/
-│   │   │   └── SKILL.md
-│   │   ├── scripts/
-│   │   │   ├── baidu_search.py
-│   │   │   ├── web_fetcher.py
-│   │   │   ├── ai_summarizer.py
-│   │   │   └── setup_env.bat   # 环境安装脚本
-│   │   └── environment.yml
-│   │
-│   └── file-searcher/
-│       └── ...
-│
-└── README.md
-```
-
-## 环境要求
-
-- Miniconda/Anaconda (自动安装)
-- dsbot_env 环境 (自动创建)
-- Python 3.10+
 
 ## License
 
