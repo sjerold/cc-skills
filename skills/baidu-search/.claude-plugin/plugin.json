@@ -6,11 +6,7 @@
     "name": "sjerold",
     "url": "https://github.com/sjerold"
   },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/sjerold/cc-skills.git",
-    "directory": "skills/baidu-search"
-  },
+  "repository": "https://github.com/sjerold/cc-skills.git",
   "license": "MIT",
   "keywords": ["baidu", "search", "chinese", "web-search", "中文搜索"],
   "skills": ["./skills"]

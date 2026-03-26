@@ -6,11 +6,7 @@
     "name": "sjerold",
     "url": "https://github.com/sjerold"
   },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/sjerold/cc-skills.git",
-    "directory": "skills/file-searcher"
-  },
+  "repository": "https://github.com/sjerold/cc-skills.git",
   "license": "MIT",
   "keywords": ["search", "file", "word", "docx", "pdf", "文件搜索", "内容搜索"],
   "skills": ["./skills"]
