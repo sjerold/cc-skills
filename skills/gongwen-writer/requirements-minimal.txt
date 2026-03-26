@@ -1,0 +1,2 @@
+# Minimal requirements for gongwen-writer
+python-docx>=0.8.11

@@ -4,7 +4,7 @@
 
 ## Skill 列表
 
-### 百度搜索 (baidu-search)
+### 百度搜索 (baidu-search) v1.1.0
 
 中文网络搜索增强工具，支持大规模搜索、智能筛选、内容抓取和 AI 总结。
 
@@ -13,13 +13,21 @@
 /baidu-search 苏州银行 -n 100 -f 10 -s
 ```
 
-### 文件搜索 (file-searcher)
+### 文件搜索 (file-searcher) v1.1.0
 
 在本地文件中搜索关键词，支持 Word/PDF/Markdown 等多种格式。
 
 ```bash
 /file-searcher 关键词
 /file-searcher 外包 --path C:\Documents --ext docx,pdf
+```
+
+### 公文写作 (gongwen-writer) v1.0.0
+
+创建符合党政机关公文格式规范的 Word 文档，包括通知、报告、请示等公文类型。
+
+```bash
+/gongwen-writer 写一份关于xxx的通知
 ```
 
 ## 安装方法
@@ -36,40 +44,21 @@
 /marketplace
 ```
 
-打开 Marketplace 界面，选择要安装的插件。
-
 ### 步骤 3：安装依赖环境
-
-安装插件后，运行对应命令安装 Python 环境：
 
 ```
 /baidu-setup
-```
-
-或
-
-```
 /file-setup
+/gongwen-setup
 ```
-
-命令会自动：
-- 检测/安装 Miniconda
-- 创建 `dsbot_env` Conda 环境
-- 安装所需 Python 依赖
 
 ## 更新插件
-
-通过 Marketplace 更新：
 
 ```
 /marketplace
 ```
 
-找到已安装的插件，点击更新。更新后重新运行 setup 命令更新依赖：
-
-```
-/baidu-setup
-```
+找到已安装的插件，点击更新。
 
 ## License
 

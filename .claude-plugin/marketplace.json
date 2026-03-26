@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "cc-skills",
-  "description": "实用的 Claude Code Skill 插件合集：百度搜索、文件搜索等",
+  "description": "实用的 Claude Code Skill 插件合集：百度搜索、文件搜索、公文写作等",
   "owner": {
     "name": "sjerold",
     "url": "https://github.com/sjerold"
@@ -28,6 +28,17 @@
         "path": "skills/file-searcher"
       },
       "homepage": "https://github.com/sjerold/cc-skills/tree/main/skills/file-searcher"
+    },
+    {
+      "name": "gongwen-writer",
+      "description": "公文写作插件，支持创建符合党政机关公文格式规范的 Word 文档，包括通知、报告、请示等公文类型。",
+      "category": "productivity",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/sjerold/cc-skills.git",
+        "path": "skills/gongwen-writer"
+      },
+      "homepage": "https://github.com/sjerold/cc-skills/tree/main/skills/gongwen-writer"
     }
   ]
 }

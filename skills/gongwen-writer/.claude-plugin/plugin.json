@@ -1,0 +1,13 @@
+{
+  "name": "gongwen-writer",
+  "version": "1.0.0",
+  "description": "公文写作插件，支持创建符合党政机关公文格式规范的 Word 文档，包括通知、报告、请示等公文类型。",
+  "author": {
+    "name": "sjerold",
+    "url": "https://github.com/sjerold"
+  },
+  "repository": "https://github.com/sjerold/cc-skills.git",
+  "license": "MIT",
+  "keywords": ["gongwen", "公文", "word", "document", "写作", "official"],
+  "skills": ["./skills"]
+}
