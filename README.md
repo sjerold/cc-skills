@@ -24,67 +24,76 @@
 
 ## 安装方法
 
-### 方法一：添加 Marketplace 后安装（推荐）
+### 方法一：Marketplace 安装（推荐）
 
-**步骤 1：添加 Marketplace**
-
-在 Claude Code 中运行：
-```
+```bash
+# 1. 添加 Marketplace
 /marketplace add https://github.com/sjerold/cc-skills.git
-```
 
-**步骤 2：安装插件**
-```
+# 2. 打开 Marketplace 界面安装
 /marketplace
 ```
-打开 marketplace 界面，找到 `cc-skills`，选择要安装的插件。
 
-### 方法二：手动安装
+### 方法二：手动安装（Windows）
+
+1. 下载仓库 ZIP 或克隆
+2. 解压后双击运行 `install.bat`
+3. 脚本会自动：
+   - 检测/安装 Miniconda
+   - 创建 `dsbot_env` Conda 环境
+   - 安装 Python 依赖
+   - 复制插件到 `~/.claude/plugins/`
+
+### 方法三：手动安装（Mac/Linux）
 
 ```bash
 # 克隆仓库
 git clone https://github.com/sjerold/cc-skills.git
+cd cc-skills
 
-# 复制插件到 Claude 插件目录
-cp -r cc-skills/skills/baidu-search ~/.claude/plugins/
-cp -r cc-skills/skills/file-searcher ~/.claude/plugins/
+# 创建 Conda 环境
+conda env create -f skills/baidu-search/environment.yml
 
-# 安装 Python 依赖
-pip install -r cc-skills/skills/baidu-search/requirements.txt
-pip install -r cc-skills/skills/file-searcher/requirements.txt
+# 复制插件
+cp -r skills/baidu-search ~/.claude/plugins/
+cp -r skills/file-searcher ~/.claude/plugins/
+
+# 设置环境变量
+echo 'export CONDA_PYTHON="$HOME/miniconda3/envs/dsbot_env/bin/python"' >> ~/.bashrc
 ```
 
-### 方法三：Windows 一键安装
+## 环境要求
 
-下载仓库后双击 `install.bat`。
+- **Miniconda/Anaconda** (自动安装)
+- **dsbot_env** 环境 (自动创建)
+- Python 3.10+
 
 ## 目录结构
 
 ```
 cc-skills/
 ├── .claude-plugin/
-│   └── marketplace.json     # Marketplace 配置
+│   └── marketplace.json
 ├── skills/
-│   ├── baidu-search/        # 百度搜索 Skill
+│   ├── baidu-search/
 │   │   ├── .claude-plugin/
 │   │   │   └── plugin.json
 │   │   ├── skills/
 │   │   │   └── SKILL.md
 │   │   ├── scripts/
+│   │   │   ├── baidu_search.py
+│   │   │   ├── web_fetcher.py
+│   │   │   └── ai_summarizer.py
+│   │   ├── environment.yml      # Conda 环境配置
 │   │   └── requirements.txt
 │   │
-│   └── file-searcher/       # 文件搜索 Skill
-│       └── ...
+│   └── file-searcher/
+│       ├── ...
+│       └── environment.yml
 │
-├── install.bat
-└── pack.bat
+├── install.bat    # Windows 安装脚本
+└── pack.bat       # 打包脚本
 ```
-
-## 依赖要求
-
-- Python 3.8+
-- 百度搜索：`requests`, `beautifulsoup4`
-- 文件搜索：`python-docx`, `PyPDF2`
 
 ## License
 
