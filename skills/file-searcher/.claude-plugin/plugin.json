@@ -9,5 +9,6 @@
   "repository": "https://github.com/sjerold/cc-skills.git",
   "license": "MIT",
   "keywords": ["search", "file", "word", "docx", "pdf", "文件搜索", "内容搜索"],
-  "skills": ["./skills"]
+  "skills": ["./skills"],
+  "commands": ["./commands"]
 }

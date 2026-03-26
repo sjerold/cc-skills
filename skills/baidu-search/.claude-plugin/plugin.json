@@ -9,5 +9,6 @@
   "repository": "https://github.com/sjerold/cc-skills.git",
   "license": "MIT",
   "keywords": ["baidu", "search", "chinese", "web-search", "中文搜索"],
-  "skills": ["./skills"]
+  "skills": ["./skills"],
+  "commands": ["./commands"]
 }

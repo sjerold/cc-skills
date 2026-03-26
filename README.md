@@ -24,49 +24,52 @@
 
 ## 安装方法
 
-### 方法一：Marketplace 安装（推荐）
+### 步骤 1：添加 Marketplace
 
-```bash
-# 1. 添加 Marketplace
+```
 /marketplace add https://github.com/sjerold/cc-skills.git
+```
 
-# 2. 打开 Marketplace 界面安装
+### 步骤 2：安装插件
+
+```
 /marketplace
 ```
 
-### 方法二：手动安装（Windows）
+打开 Marketplace 界面，选择要安装的插件。
 
-1. 下载仓库 ZIP 或克隆
-2. 解压后双击运行 `install.bat`
-3. 脚本会自动：
-   - 检测/安装 Miniconda
-   - 创建 `dsbot_env` Conda 环境
-   - 安装 Python 依赖
-   - 复制插件到 `~/.claude/plugins/`
+### 步骤 3：安装依赖环境
 
-### 方法三：手动安装（Mac/Linux）
+安装插件后，运行 setup 命令安装 Python 环境：
 
-```bash
-# 克隆仓库
-git clone https://github.com/sjerold/cc-skills.git
-cd cc-skills
-
-# 创建 Conda 环境
-conda env create -f skills/baidu-search/environment.yml
-
-# 复制插件
-cp -r skills/baidu-search ~/.claude/plugins/
-cp -r skills/file-searcher ~/.claude/plugins/
-
-# 设置环境变量
-echo 'export CONDA_PYTHON="$HOME/miniconda3/envs/dsbot_env/bin/python"' >> ~/.bashrc
+```
+/baidu-search:setup
 ```
 
-## 环境要求
+或
 
-- **Miniconda/Anaconda** (自动安装)
-- **dsbot_env** 环境 (自动创建)
-- Python 3.10+
+```
+/file-searcher:setup
+```
+
+setup 命令会自动：
+- 检测/安装 Miniconda
+- 创建 `dsbot_env` Conda 环境
+- 安装所需 Python 依赖
+
+## 更新插件
+
+```
+/marketplace
+```
+
+打开 Marketplace 界面，找到已安装的插件，点击更新。
+
+更新后如需更新依赖，重新运行 setup 命令：
+
+```
+/baidu-search:setup
+```
 
 ## 目录结构
 
@@ -78,22 +81,28 @@ cc-skills/
 │   ├── baidu-search/
 │   │   ├── .claude-plugin/
 │   │   │   └── plugin.json
+│   │   ├── commands/
+│   │   │   └── setup.md        # /baidu-search:setup 命令
 │   │   ├── skills/
 │   │   │   └── SKILL.md
 │   │   ├── scripts/
 │   │   │   ├── baidu_search.py
 │   │   │   ├── web_fetcher.py
-│   │   │   └── ai_summarizer.py
-│   │   ├── environment.yml      # Conda 环境配置
-│   │   └── requirements.txt
+│   │   │   ├── ai_summarizer.py
+│   │   │   └── setup_env.bat   # 环境安装脚本
+│   │   └── environment.yml
 │   │
 │   └── file-searcher/
-│       ├── ...
-│       └── environment.yml
+│       └── ...
 │
-├── install.bat    # Windows 安装脚本
-└── pack.bat       # 打包脚本
+└── README.md
 ```
+
+## 环境要求
+
+- Miniconda/Anaconda (自动安装)
+- dsbot_env 环境 (自动创建)
+- Python 3.10+
 
 ## License
 
