@@ -1,0 +1,16 @@
+{
+  "name": "baidu-search",
+  "description": "百度搜索插件，提供中文网络搜索能力。使用百度搜索引擎进行中文内容搜索，返回结构化搜索结果。",
+  "version": "1.0.0",
+  "author": {
+    "name": "Claude User"
+  },
+  "skills": ["./skills/baidu-search"],
+  "keywords": [
+    "baidu",
+    "search",
+    "chinese",
+    "web-search",
+    "中文搜索"
+  ]
+}

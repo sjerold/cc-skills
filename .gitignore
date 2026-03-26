@@ -1,0 +1,38 @@
+# 缓存和临时文件
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# 分发目录
+dist/
+build/
+*.egg-info/
+
+# 临时文件
+temp_pack/
+*.tmp
+*.temp
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 测试输出
+test_output/
+search_results/
+
+# 不需要发布的文件
+cache/
+marketplaces/
+blocklist.json
+install-counts-cache.json
+installed_plugins.json
+known_marketplaces.json

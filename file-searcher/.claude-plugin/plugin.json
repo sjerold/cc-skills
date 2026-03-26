@@ -1,0 +1,19 @@
+{
+  "name": "file-searcher",
+  "description": "文件内容搜索插件，支持在 Word (.docx)、PDF、Markdown、文本等文件中搜索关键词。",
+  "version": "1.0.0",
+  "author": {
+    "name": "Claude User"
+  },
+  "skills": ["./skills/file-searcher"],
+  "keywords": [
+    "search",
+    "file",
+    "word",
+    "docx",
+    "pdf",
+    "content",
+    "文件搜索",
+    "内容搜索"
+  ]
+}

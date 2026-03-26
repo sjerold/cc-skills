@@ -1,0 +1,10 @@
+# 文件搜索插件依赖
+
+# Word 文档支持
+python-docx>=0.8.11
+
+# PDF 支持
+PyPDF2>=3.0.0
+
+# 可选：更好的 PDF 支持
+# pdfplumber>=0.7.0
