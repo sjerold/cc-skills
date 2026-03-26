@@ -1,7 +1,7 @@
 ---
 name: gongwen-writer
 description: This skill should be used when the user asks to "写公文", "撰写公文", "起草文件", "创建Word公文", or needs to write official documents in standard Chinese government format. Provides guidance for creating properly formatted official documents (公文) in Word format.
-version: 1.0.0
+version: 1.1.0
 ---
 
 # 公文写作技能
@@ -185,6 +185,20 @@ version: 1.0.0
 - 骑马订/平订订位: 两钉外订眼距版面上下边缘各70mm处
 - 平钉钉距与书脊间距: 3mm ～ 5mm
 
+### 十七、阿拉伯数字字体规范
+
+**重要规则**: 公文中所有阿拉伯数字必须使用 **Times New Roman** 字体
+
+适用范围:
+- 发文字号中的年份、顺序号
+- 份号
+- 成文日期
+- 页码
+- 正文中的数字
+- 附件序号
+- 印发日期
+- 统计数据、金额、百分比等
+
 ## Word文档实现要点
 
 使用python-docx库创建公文时，需要设置:
@@ -208,10 +222,14 @@ for section in sections:
 # 行距设置
 paragraph.paragraph_format.line_spacing = Pt(28)
 
-# 字体设置
+# 中文字体设置
 run.font.name = '仿宋_GB2312'
 run._element.rPr.rFonts.set(qn('w:eastAsia'), '仿宋_GB2312')
 run.font.size = Pt(16)  # 3号字约16磅
+
+# 阿拉伯数字字体设置 (Times New Roman)
+run.font.name = 'Times New Roman'
+run.font.size = Pt(16)
 ```
 
 ## 公文类型
