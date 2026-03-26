@@ -62,6 +62,48 @@ class GongwenDocument:
         # 设置中文字体
         run._element.rPr.rFonts.set(qn('w:eastAsia'), font_name)
 
+    def _set_font_for_run(self, run, font_name, font_size, is_digit=False):
+        """为run设置字体，数字使用Times New Roman"""
+        if is_digit:
+            run.font.name = 'Times New Roman'
+            run.font.size = font_size
+        else:
+            run.font.name = font_name
+            run.font.size = font_size
+            run._element.rPr.rFonts.set(qn('w:eastAsia'), font_name)
+
+    def _add_mixed_paragraph(self, text, font_name='仿宋_GB2312', font_size=None,
+                             alignment=WD_ALIGN_PARAGRAPH.LEFT,
+                             space_before=Pt(0), space_after=Pt(0),
+                             line_spacing=Pt(28), first_line_indent=None,
+                             bold=False):
+        """添加段落，自动将数字设为Times New Roman字体"""
+        import re
+        if font_size is None:
+            font_size = self.FONT_SIZES['三号']
+
+        para = self.doc.add_paragraph()
+        para.alignment = alignment
+        para.paragraph_format.space_before = space_before
+        para.paragraph_format.space_after = space_after
+        para.paragraph_format.line_spacing = line_spacing
+        para.paragraph_format.line_spacing_rule = WD_LINE_SPACING.EXACTLY
+
+        if first_line_indent:
+            para.paragraph_format.first_line_indent = first_line_indent
+
+        # 分割文本：数字和非数字
+        parts = re.split(r'(\d+)', text)
+        for part in parts:
+            if part:
+                run = para.add_run(part)
+                is_digit = part.isdigit()
+                self._set_font_for_run(run, font_name, font_size, is_digit)
+                if bold and not is_digit:
+                    run.font.bold = bold
+
+        return para
+
     def _add_paragraph(self, text, font_name='仿宋_GB2312', font_size=None,
                        alignment=WD_ALIGN_PARAGRAPH.LEFT,
                        space_before=Pt(0), space_after=Pt(0),
@@ -87,8 +129,8 @@ class GongwenDocument:
         return para
 
     def add_fenhao(self, fenhao):
-        """添加份号"""
-        self._add_paragraph(
+        """添加份号（数字用Times New Roman）"""
+        self._add_mixed_paragraph(
             fenhao,
             font_name='仿宋_GB2312',
             font_size=self.FONT_SIZES['三号'],
@@ -96,14 +138,14 @@ class GongwenDocument:
         )
 
     def add_miji(self, miji, baomi_qixian=None):
-        """添加密级和保密期限"""
+        """添加密级和保密期限（数字用Times New Roman）"""
         if baomi_qixian:
             text = f"{miji}★{baomi_qixian}"
         else:
             # 只标密级，两字间空1字
             text = f"{miji[0]}　{miji[1]}" if len(miji) == 2 else miji
 
-        self._add_paragraph(
+        self._add_mixed_paragraph(
             text,
             font_name='黑体',
             font_size=self.FONT_SIZES['三号'],
@@ -125,13 +167,13 @@ class GongwenDocument:
         return para
 
     def add_fawenzihao(self, dai_zi, year, order_num):
-        """添加发文字号"""
+        """添加发文字号（数字用Times New Roman）"""
         text = f"{dai_zi}〔{year}〕{order_num}号"
 
         # 先添加空行
         self.doc.add_paragraph()
 
-        self._add_paragraph(
+        self._add_mixed_paragraph(
             text,
             font_name='仿宋_GB2312',
             font_size=self.FONT_SIZES['三号'],
@@ -184,7 +226,7 @@ class GongwenDocument:
         )
 
     def add_body(self, content):
-        """添加正文"""
+        """添加正文（数字用Times New Roman）"""
         # 处理正文内容
         lines = content.split('\n')
 
@@ -200,7 +242,7 @@ class GongwenDocument:
                line.startswith('七、') or line.startswith('八、') or \
                line.startswith('九、') or line.startswith('十、'):
                 # 一级标题：3号黑体
-                self._add_paragraph(
+                self._add_mixed_paragraph(
                     line,
                     font_name='黑体',
                     font_size=self.FONT_SIZES['三号'],
@@ -213,16 +255,16 @@ class GongwenDocument:
                  line.startswith('（七）') or line.startswith('（八）') or \
                  line.startswith('（九）') or line.startswith('（十）'):
                 # 二级标题：3号楷体不加粗
-                self._add_paragraph(
+                self._add_mixed_paragraph(
                     line,
                     font_name='楷体_GB2312',
                     font_size=self.FONT_SIZES['三号'],
                     alignment=WD_ALIGN_PARAGRAPH.LEFT,
                     first_line_indent=self.INDENT_2_CHARS
                 )
-            elif line[0].isdigit() and '. ' in line[:3]:
+            elif len(line) > 0 and line[0].isdigit() and '. ' in line[:4]:
                 # 三级标题：3号仿宋加粗
-                self._add_paragraph(
+                self._add_mixed_paragraph(
                     line,
                     font_name='仿宋_GB2312',
                     font_size=self.FONT_SIZES['三号'],
@@ -232,7 +274,7 @@ class GongwenDocument:
                 )
             else:
                 # 普通正文：3号仿宋
-                self._add_paragraph(
+                self._add_mixed_paragraph(
                     line,
                     font_name='仿宋_GB2312',
                     font_size=self.FONT_SIZES['三号'],
@@ -241,7 +283,7 @@ class GongwenDocument:
                 )
 
     def add_fujian(self, fujian_list):
-        """添加附件"""
+        """添加附件（数字用Times New Roman）"""
         # 正文下空一行
         self.doc.add_paragraph()
 
@@ -257,7 +299,7 @@ class GongwenDocument:
         # 附件列表
         for i, item in enumerate(fujian_list, 1):
             text = f"{i}. {item}" if len(fujian_list) > 1 else item
-            para = self._add_paragraph(
+            para = self._add_mixed_paragraph(
                 text,
                 font_name='仿宋_GB2312',
                 font_size=self.FONT_SIZES['三号'],
@@ -290,13 +332,13 @@ class GongwenDocument:
         )
 
     def add_chengwen_riqi(self, date=None, you_kong=4):
-        """添加成文日期"""
+        """添加成文日期（数字用Times New Roman）"""
         if date is None:
             date = datetime.date.today()
 
         text = f"{date.year}年{date.month}月{date.day}日"
 
-        para = self._add_paragraph(
+        para = self._add_mixed_paragraph(
             text,
             font_name='仿宋_GB2312',
             font_size=self.FONT_SIZES['三号'],
@@ -307,7 +349,7 @@ class GongwenDocument:
         para.paragraph_format.right_indent = Mm(21 * 4 / 28 * 10)  # 近似4字
 
     def add_banji(self, yinfa_jiguan, yinfa_riqi, chaosong=None):
-        """添加版记"""
+        """添加版记（数字用Times New Roman）"""
         # 添加分隔线
         para = self.doc.add_paragraph()
         para.add_run('_' * 50)
@@ -325,7 +367,7 @@ class GongwenDocument:
             yinfa_riqi = datetime.date.today()
         date_text = f"{yinfa_riqi.year}年{yinfa_riqi.month}月{yinfa_riqi.day}日印发"
 
-        self._add_paragraph(
+        self._add_mixed_paragraph(
             f"                    {date_text} ",
             font_name='仿宋_GB2312',
             font_size=self.FONT_SIZES['四号'],
@@ -495,7 +537,7 @@ def create_gongwen(
 # 使用示例
 if __name__ == '__main__':
     create_gongwen(
-        output_path='示例公文.docx',  # 将保存到 C:\Users\admin\Downloads\示例公文.docx
+        output_path='test_gongwen.docx',  # 将保存到 C:\Users\admin\Downloads\test_gongwen.docx
         org_name='苏州银行',
         doc_type='通知',
         subject='关于开展2026年度员工培训的',

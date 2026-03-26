@@ -1,6 +1,6 @@
 {
   "name": "gongwen-writer",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "公文写作插件，支持创建符合党政机关公文格式规范的 Word 文档，包括通知、报告、请示等公文类型。",
   "author": {
     "name": "sjerold",
