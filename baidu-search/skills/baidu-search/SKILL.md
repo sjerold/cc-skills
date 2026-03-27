@@ -1,7 +1,7 @@
 ---
 name: baidu-search
 description: |
-  百度搜索增强版：大规模搜索、智能分数筛选、内容抓取、AI总结。
+  百度搜索增强版：大规模搜索、智能分数筛选、内容抓取、自动总结。
   当用户要求"百度搜索"、"用百度查"、"搜索中文内容"、"baidu search"时触发。
   适合搜索中文资料、中国本土信息、企业信息、新闻资讯等。
 argument-hint: <搜索关键词>
@@ -9,109 +9,81 @@ argument-hint: <搜索关键词>
 
 # 百度搜索增强版
 
-一个完整的中文网络搜索解决方案，支持大规模搜索、智能筛选、内容抓取和 AI 总结。
+一个完整的中文网络搜索解决方案，支持大规模搜索、智能筛选、内容抓取和自动总结。
 
 ## 核心功能
 
 | 功能 | 说明 |
 |-----|------|
-| 大规模搜索 | 支持 100-200+ 条结果 |
-| 智能筛选 | 按质量分数过滤，返回前 20% 或高于阈值的结果 |
-| 内容抓取 | 自动解析百度跳转链接，抓取真实网页内容 |
-| 动态网页 | 支持 Playwright 渲染 JavaScript 页面 |
-| 本地存档 | 将抓取内容保存到本地文件 |
-| AI 总结 | 调用 LLM 生成内容摘要和关键发现 |
+| 大规模搜索 | 默认搜索 150 条结果 |
+| 智能筛选 | 按质量分数自动筛选前 35% 进行抓取 |
+| Session 管理 | 每次搜索生成唯一 session_id，文件独立保存 |
+| 内容抓取 | 使用 Playwright 渲染动态页面 |
+| 本地存档 | 抓取内容保存为 Markdown 文件 |
+| 自动总结 | 读取所有 md 文件，生成整合报告 |
 
 ## 快速开始
 
 ```bash
-# 基础搜索：搜索100条，返回分数前20%
-/c/Users/admin/miniconda3/envs/dsbot_env/python.exe "$PLUGIN_DIR/scripts/baidu_search.py" "苏州银行"
+# 一键搜索（自动完成所有流程）
+/c/Users/admin/miniconda3/envs/dsbot_env/python.exe "$PLUGIN_DIR/scripts/baidu_search.py" "数字人民币 2026"
 
-# 完整流程：搜索 + 抓取 + 总结 + 存档
-/c/Users/admin/miniconda3/envs/dsbot_env/python.exe "$PLUGIN_DIR/scripts/baidu_search.py" "苏州银行" -n 150 -f 20 -s -o ~/search_results/suzhoubank
+# 指定搜索数量和筛选比例
+/c/Users/admin/miniconda3/envs/dsbot_env/python.exe "$PLUGIN_DIR/scripts/baidu_search.py" "苏州银行" -n 100 -t 40
 ```
 
-## 脚本说明
-
-### 1. baidu_search.py - 主搜索脚本
+## 命令参数
 
 ```bash
 python baidu_search.py <关键词> [选项]
 
 参数:
-  -n, --limit        搜索结果数量上限 (默认100)
-  -t, --top-percent  按分数筛选前N% (默认20)
+  <关键词>           搜索关键词
+  -n, --limit        搜索结果数量 (默认150)
+  -t, --top-percent  按分数筛选前N%的结果进行抓取 (默认35)
   --min-score        最低分数阈值 (默认1.0)
-  -f, --fetch        抓取前N个结果的内容 (默认0=不抓取)
-  -s, --summarize    调用AI总结抓取内容
-  -o, --output       保存内容的目录路径
-  --max-workers      并发抓取数 (默认5)
+  -o, --output       保存目录 (默认 ~/Downloads/baidu_search/<session_id>)
+  --session-id       指定会话ID
+  --no-summarize     不生成总结报告
   --json             输出JSON格式
+  --show-browser     显示浏览器窗口（用于处理验证码）
+  --close            关闭所有调试Chrome进程
 ```
 
-**示例**:
-```bash
-# 搜索200条，筛选分数前15%，抓取前15个，总结
-python baidu_search.py "人工智能发展趋势" -n 200 -t 15 -f 15 -s -o ./ai_trend
-
-# 仅搜索和筛选，不抓取
-python baidu_search.py "苏州银行 公司简介" -n 100 -t 20
-```
-
-### 2. web_fetcher.py - 网页抓取脚本
-
-支持静态和动态网页抓取。
+## 使用示例
 
 ```bash
-python web_fetcher.py <URL...> [选项]
+# 默认搜索：150条结果，自动抓取前35%
+python baidu_search.py "人工智能发展趋势"
 
-参数:
-  -d, --dynamic    渲染模式: auto(自动), always(动态), never(静态)
-  -w, --wait       动态渲染等待时间(秒)
-  -t, --timeout    请求超时(秒)
-  -o, --output     保存目录
-  --max-workers    并发数
+# 搜索100条，抓取分数前40%
+python baidu_search.py "苏州银行" -n 100 -t 40
+
+# 指定保存目录
+python baidu_search.py "数字货币" -o ./my_search
+
+# 仅搜索不生成总结
+python baidu_search.py "测试关键词" --no-summarize
 ```
 
-**示例**:
-```bash
-# 抓取单个URL
-python web_fetcher.py "https://www.suzhoubank.com" -o ./output
+## 输出文件结构
 
-# 抓取多个URL，自动判断是否需要动态渲染
-python web_fetcher.py url1 url2 url3 -d auto -o ./output
+每次搜索会在 `~/Downloads/baidu_search/<session_id>/` 目录下生成：
 
-# 强制使用动态渲染（适用于SPA页面）
-python web_fetcher.py "https://spa-example.com" -d always
+```
+20260327_102254_d0969214/
+├── 网页标题1_abc123.md        # 抓取的网页内容
+├── 网页标题2_def456.md
+├── ...
+├── 搜索报告_20260327_102254_d0969214.md  # 详细报告
+└── 搜索总结_20260327_102254_d0969214.md  # 整合总结
 ```
 
-### 3. ai_summarizer.py - AI总结脚本
+### 文件说明
 
-对本地文件或文本内容进行 AI 总结。
-
-```bash
-python ai_summarizer.py <主题> [选项]
-
-参数:
-  -i, --input    输入文件或目录
-  -t, --text     直接输入文本
-  -s, --style    总结风格: comprehensive/brief/extract
-  --analyze      深度分析模式
-  -o, --output   输出文件
-```
-
-**示例**:
-```bash
-# 总结目录下的所有文件
-python ai_summarizer.py "苏州银行" -i ./output -o ./summary.md
-
-# 直接总结文本
-python ai_summarizer.py "Python教程" -t "Python是一种..."
-
-# 深度分析模式
-python ai_summarizer.py "人工智能" -i ./ai_articles --analyze
-```
+- **网页内容文件**: 每个抓取的网页保存为单独的 `.md` 文件
+- **搜索报告**: 包含所有搜索结果、参考链接、内容预览
+- **搜索总结**: 整合所有抓取内容，生成结构化总结
 
 ## 质量评分规则
 
@@ -120,25 +92,11 @@ python ai_summarizer.py "人工智能" -i ./ai_articles --analyze
 | 类型 | 示例 | 分数倍率 |
 |-----|------|---------|
 | 官方文档 | python.org, github.com | × 2.5 |
-| 技术社区 | stackoverflow, csdn | × 1.4~2.3 |
 | 官方机构 | edu.cn, gov.cn | × 1.8 |
-| 企业官网 | suzhoubank.com | × 2.0 |
-| 低质量 | 百度贴吧 | × 0.3 |
-
-## 环境变量配置
-
-启用 AI 功能需要配置：
-
-```bash
-# LLM API 配置
-export LLM_API_KEY="your-api-key"
-export LLM_API_BASE="https://api.openai.com/v1"
-export LLM_MODEL="gpt-3.5-turbo"
-
-# 或使用 OpenAI 环境变量
-export OPENAI_API_KEY="your-api-key"
-export OPENAI_API_BASE="https://api.openai.com/v1"
-```
+| 技术社区 | csdn, zhihu, juejin | × 1.4~2.3 |
+| 企业官网 | 官方网站 | × 2.0 |
+| 新闻媒体 | sina, qq, sohu | × 1.5 |
+| 低质量 | 贴吧、论坛灌水 | × 0.3 |
 
 ## 工作流程
 
@@ -148,31 +106,31 @@ export OPENAI_API_BASE="https://api.openai.com/v1"
       ▼
 ┌─────────────────┐
 │   大规模搜索    │
-│   (100-200条)   │
+│   (默认150条)   │
 └─────────────────┘
       │
       ▼
 ┌─────────────────┐
 │  质量评分排序   │
-│  筛选前20%      │
+│  筛选前35%      │
 └─────────────────┘
       │
       ▼
 ┌─────────────────┐
-│   内容抓取      │
+│  Playwright抓取 │
 │   (支持动态页)  │
 └─────────────────┘
       │
       ▼
 ┌─────────────────┐
-│   本地存档      │
+│  保存为md文件   │
+│  (session目录)  │
 └─────────────────┘
       │
       ▼
 ┌─────────────────┐
-│   AI 总结       │
-│   + 关键发现    │
-│   + 参考链接    │
+│   读取所有md    │
+│   生成总结报告  │
 └─────────────────┘
 ```
 
@@ -182,7 +140,7 @@ export OPENAI_API_BASE="https://api.openai.com/v1"
 # 基础依赖
 pip install requests beautifulsoup4
 
-# 动态网页支持（可选）
+# 动态网页支持
 pip install playwright
 playwright install chromium
 ```

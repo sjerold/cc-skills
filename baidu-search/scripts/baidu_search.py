@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-百度搜索脚本 - 增强版
-支持大规模搜索、智能分数筛选、内容抓取、AI总结
+百度搜索脚本 - 复制Chrome配置版
+支持后台运行(headless)和自动关闭浏览器
 """
 
 import sys
@@ -10,13 +10,16 @@ import json
 import urllib.parse
 import re
 import io
-import random
 import argparse
 import os
 import time
 import hashlib
+import shutil
+import subprocess
+import signal
+import uuid
 from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 
 # 确保 UTF-8 编码
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
@@ -33,585 +36,947 @@ try:
 except ImportError:
     HAS_BS4 = False
 
-
-# ============ 工具函数 ============
-
-def get_display_path(path):
-    """将路径转换为适合当前系统的显示格式"""
-    if not path:
-        return path
-
-    # Windows 系统
-    if sys.platform == 'win32':
-        # 处理 Git Bash 的 /tmp 映射
-        if path.startswith('/tmp/'):
-            import tempfile
-            # 获取 Windows 临时目录
-            win_temp = tempfile.gettempdir()
-            path = path.replace('/tmp/', win_temp.replace('\\', '/') + '/')
-
-        # 将 Unix 风格路径转换为 Windows 风格
-        path = path.replace('/', '\\')
-
-    return path
+try:
+    from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
+    HAS_PLAYWRIGHT = True
+except ImportError:
+    HAS_PLAYWRIGHT = False
 
 
 # ============ 配置 ============
 
-USER_AGENTS = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 Edg/121.0.0.0',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-]
+CHROME_DEBUG_PORT = 9223
 
-# 质量评分配置
-QUALITY_SITES = {
-    # 技术权威
-    'github.com': 2.5,
-    'stackoverflow.com': 2.3,
-    'python.org': 2.5,
-    'pypi.org': 2.2,
-    'npmjs.com': 2.2,
-    'readthedocs.io': 2.3,
-    'mdn.mozilla.org': 2.3,
-    'dev.mysql.com': 2.3,
-    'docs.microsoft.com': 2.2,
-    'openai.com': 2.3,
-    'anthropic.com': 2.3,
-    # 中文技术
-    'runoob.com': 1.8,
-    'csdn.net': 1.4,
-    'juejin.cn': 1.5,
-    'zhihu.com': 1.3,
-    'segmentfault.com': 1.5,
-    'cnblogs.com': 1.3,
-    'jianshu.com': 1.2,
-    'oschina.net': 1.5,
-    'infoq.cn': 1.6,
-    # 官方/权威
-    'edu.cn': 1.8,
-    'gov.cn': 1.8,
-    'wikipedia.org': 1.7,
-    'baike.baidu.com': 1.2,
-    'zh.wikipedia.org': 1.7,
-    # 新闻/资讯
-    'sina.com.cn': 1.2,
-    'sohu.com': 1.1,
-    '163.com': 1.1,
-    'qq.com': 1.1,
-    'eastmoney.com': 1.4,
-    # 企业官网
-    'suzhoubank.com': 2.0,
-}
+# Chrome配置目录
+if sys.platform == 'win32':
+    CHROME_USER_DATA_DIR = os.path.join(os.environ['LOCALAPPDATA'], 'Google', 'Chrome', 'User Data')
+    TEMP_CHROME_DIR = os.path.join(os.environ['TEMP'], 'chrome-search-profile')
+else:
+    CHROME_USER_DATA_DIR = os.path.expanduser('~/.config/google-chrome')
+    TEMP_CHROME_DIR = '/tmp/chrome-search-profile'
 
-# 低质量站点降权
-LOW_QUALITY_SITES = {
-    'wenku.baidu.com': 0.4,
-    'zhidao.baidu.com': 0.5,
-    'tieba.baidu.com': 0.3,
-    'baike.sogou.com': 0.5,
-    'wenda.so.com': 0.5,
-}
+# 需要复制的目录
+COPY_DIRS = ['Default', 'Profile 1', 'Profile 2']
+
+# Chrome进程PID文件
+CHROME_PID_FILE = os.path.join(TEMP_CHROME_DIR, '.chrome_pid')
+
+# 默认保存目录
+DEFAULT_OUTPUT_DIR = os.path.join(os.path.expanduser('~'), 'Downloads', 'baidu_search')
 
 
-# ============ 搜索函数 ============
-
-def calculate_quality_score(title, url, abstract):
-    """计算结果质量分数"""
-    score = 1.0
-
-    # 高质量站点加分
-    for site, bonus in QUALITY_SITES.items():
-        if site in url:
-            score *= bonus
-            break
-
-    # 低质量站点降权
-    for site, penalty in LOW_QUALITY_SITES.items():
-        if site in url:
-            score *= penalty
-            break
-
-    # 标题相关性加分
-    if abstract and len(abstract) > 50:
-        score *= 1.1  # 有摘要且内容丰富
-
-    return round(score, 2)
+def generate_session_id():
+    """生成会话ID"""
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    short_uuid = uuid.uuid4().hex[:8]
+    return f"{timestamp}_{short_uuid}"
 
 
-def search_single_page(query, page_num):
-    """搜索单页结果"""
-    encoded_query = urllib.parse.quote(query)
-    # 百度每页约10条，pn=0, 10, 20, ...
-    pn = (page_num - 1) * 10
-    url = f"https://www.baidu.com/s?wd={encoded_query}&ie=utf-8&pn={pn}&rn=50"
+def get_session_dir(base_dir=None, session_id=None):
+    """获取会话目录
 
-    headers = {
-        'User-Agent': random.choice(USER_AGENTS),
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-        'Accept-Encoding': 'gzip, deflate',
-        'Connection': 'keep-alive',
-        'Referer': 'https://www.baidu.com/',
-    }
+    Args:
+        base_dir: 基础目录，默认为 ~/Downloads/baidu_search
+        session_id: 会话ID，不提供则自动生成
+    """
+    if base_dir is None:
+        base_dir = DEFAULT_OUTPUT_DIR
+
+    if session_id is None:
+        session_id = generate_session_id()
+
+    session_dir = os.path.join(base_dir, session_id)
+    os.makedirs(session_dir, exist_ok=True)
+
+    return session_dir, session_id
+
+
+def get_chrome_path():
+    """获取Chrome路径"""
+    if sys.platform == 'win32':
+        paths = [
+            os.path.join(os.environ.get('PROGRAMFILES', ''), 'Google', 'Chrome', 'Application', 'chrome.exe'),
+            os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Google', 'Chrome', 'Application', 'chrome.exe'),
+        ]
+        for p in paths:
+            if os.path.exists(p):
+                return p
+    return 'chrome'
+
+
+def check_port_in_use(port):
+    """检查端口"""
+    import socket
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(1)
+    result = sock.connect_ex(('127.0.0.1', port))
+    sock.close()
+    return result == 0
+
+
+def copy_chrome_profile():
+    """复制Chrome配置到临时目录"""
+    print("正在复制Chrome配置...", file=sys.stderr)
+
+    # 如果已有临时目录，先删除
+    if os.path.exists(TEMP_CHROME_DIR):
+        try:
+            shutil.rmtree(TEMP_CHROME_DIR)
+        except:
+            pass
+
+    os.makedirs(TEMP_CHROME_DIR, exist_ok=True)
+
+    copied_count = 0
+    for dir_name in COPY_DIRS:
+        src = os.path.join(CHROME_USER_DATA_DIR, dir_name)
+        dst = os.path.join(TEMP_CHROME_DIR, dir_name)
+        if os.path.exists(src):
+            try:
+                # 只复制关键文件，跳过大文件和锁定文件
+                shutil.copytree(src, dst,
+                    ignore=shutil.ignore_patterns(
+                        'Cache*', 'GPUCache*', 'Code Cache*',
+                        'DawnGraphiteCache*', 'DawnWebGPUCache*',
+                        '*.lock', 'LOCK', 'lockfile',
+                        'Session Storage', 'IndexedDB', 'File System'
+                    ))
+                copied_count += 1
+                print(f"  复制 {dir_name} 成功", file=sys.stderr)
+            except Exception as e:
+                print(f"  警告: {dir_name} 部分文件复制失败", file=sys.stderr)
+
+    print(f"配置复制完成 (复制了 {copied_count} 个配置)", file=sys.stderr)
+    return TEMP_CHROME_DIR
+
+
+def start_chrome(headless=True):
+    """启动Chrome调试模式
+
+    Args:
+        headless: True=后台运行，False=显示窗口
+    """
+    if check_port_in_use(CHROME_DEBUG_PORT):
+        print(f"Chrome调试端口 {CHROME_DEBUG_PORT} 已可用", file=sys.stderr)
+        return True
+
+    # 复制配置
+    profile_dir = copy_chrome_profile()
+
+    chrome_path = get_chrome_path()
+    cmd = [
+        chrome_path,
+        f"--remote-debugging-port={CHROME_DEBUG_PORT}",
+        f"--user-data-dir={profile_dir}",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--disable-background-networking",
+        "--disable-sync",
+        "--disable-translate",
+        "--metrics-recording-only",
+        "--disable-default-apps",
+    ]
+
+    if headless:
+        cmd.append("--headless=new")
 
     try:
-        response = requests.get(url, headers=headers, timeout=15)
-        if response.encoding is None or response.encoding.lower() == 'iso-8859-1':
-            response.encoding = 'utf-8'
+        # 保存PID到文件
+        os.makedirs(TEMP_CHROME_DIR, exist_ok=True)
 
-        html = response.text
-        results = []
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == 'win32' else 0
+        )
 
-        h3_matches = re.findall(r'<h3[^>]*>(.*?)</h3>', html, re.DOTALL)
+        # 保存PID
+        with open(CHROME_PID_FILE, 'w') as f:
+            f.write(str(proc.pid))
 
-        for h3 in h3_matches:
-            link_match = re.search(r'href="(https?://(?:www\.)?baidu\.com/link\?url=[^"]+)"', h3)
-            if not link_match:
-                continue
+        for _ in range(30):
+            time.sleep(0.5)
+            if check_port_in_use(CHROME_DEBUG_PORT):
+                mode = "后台模式" if headless else "窗口模式"
+                print(f"Chrome已启动 ({mode})，PID: {proc.pid}", file=sys.stderr)
+                return True
 
-            result_url = link_match.group(1)
-            title = re.sub(r'<[^>]+>', '', h3)
-            title = re.sub(r'\s+', ' ', title).strip()
-
-            if len(title) < 2:
-                continue
-
-            if any(kw in title.lower() for kw in ['推广', '广告', 'sponsored', '企业认证']):
-                continue
-
-            results.append({
-                'title': title,
-                'url': result_url,
-                'abstract': ''
-            })
-
-        # 提取摘要
-        abstract_pattern = r'<div[^>]*class="c-abstract[^"]*"[^>]*>(.*?)</div>'
-        abstract_matches = re.findall(abstract_pattern, html, re.DOTALL)
-
-        for i, abstract in enumerate(abstract_matches):
-            if i < len(results):
-                abstract_text = re.sub(r'<[^>]+>', '', abstract)
-                abstract_text = re.sub(r'\s+', ' ', abstract_text).strip()
-                results[i]['abstract'] = abstract_text[:300]
-
-        return results
-
+        return False
     except Exception as e:
-        return {'error': str(e)}
+        print(f"启动Chrome失败: {e}", file=sys.stderr)
+        return False
 
 
-def search(query, total_results=100):
-    """执行大规模百度搜索"""
-    # 计算需要的页数（每页约10条有效结果）
-    pages_needed = (total_results // 8) + 1
+def close_chrome():
+    """关闭Chrome调试进程"""
+    pid = None
 
-    all_results = []
+    # 读取保存的PID
+    if os.path.exists(CHROME_PID_FILE):
+        try:
+            with open(CHROME_PID_FILE, 'r') as f:
+                pid = int(f.read().strip())
+            os.remove(CHROME_PID_FILE)
+        except:
+            pass
 
-    for page in range(1, pages_needed + 1):
-        results = search_single_page(query, page)
-        if isinstance(results, dict) and 'error' in results:
-            continue
-        all_results.extend(results)
+    # 如果没有PID文件，尝试从端口获取
+    if not pid and check_port_in_use(CHROME_DEBUG_PORT):
+        try:
+            result = subprocess.run(
+                ['netstat', '-ano'],
+                capture_output=True, text=True, timeout=5
+            )
+            for line in result.stdout.split('\n'):
+                if f':{CHROME_DEBUG_PORT}' in line and 'LISTENING' in line:
+                    parts = line.split()
+                    if len(parts) >= 5:
+                        pid = int(parts[-1])
+                        break
+        except:
+            pass
 
-        # 去重
-        seen_urls = set()
-        unique_results = []
-        for r in all_results:
-            if r['url'] not in seen_urls:
-                seen_urls.add(r['url'])
-                unique_results.append(r)
-        all_results = unique_results
+    if pid:
+        try:
+            subprocess.run(['taskkill', '/F', '/PID', str(pid)],
+                          capture_output=True, timeout=5)
+            print(f"Chrome已关闭 (PID: {pid})", file=sys.stderr)
+        except Exception as e:
+            print(f"关闭Chrome失败: {e}", file=sys.stderr)
 
-        if len(all_results) >= total_results:
-            break
+    # 等待端口释放
+    time.sleep(1)
 
-        time.sleep(0.5)  # 避免请求过快
-
-    # 计算质量分数
-    for r in all_results:
-        r['score'] = calculate_quality_score(r['title'], r['url'], r.get('abstract', ''))
-
-    return all_results[:total_results]
-
-
-def filter_by_score(results, top_percent=20, min_score=1.0):
-    """按分数筛选结果"""
-    if not results:
-        return [], 0
-
-    # 按分数排序
-    sorted_results = sorted(results, key=lambda x: x.get('score', 1), reverse=True)
-
-    # 计算阈值
-    scores = [r['score'] for r in sorted_results]
-    avg_score = sum(scores) / len(scores)
-    threshold = max(min_score, avg_score)
-
-    # 筛选
-    filtered = [r for r in sorted_results if r['score'] >= threshold]
-
-    # 或者取前 top_percent
-    top_count = max(1, int(len(sorted_results) * top_percent / 100))
-    if len(filtered) < top_count:
-        filtered = sorted_results[:top_count]
-
-    return filtered, threshold
+    # 最终检查
+    if check_port_in_use(CHROME_DEBUG_PORT):
+        print("Chrome端口仍在使用", file=sys.stderr)
+    else:
+        print("Chrome调试进程已清理", file=sys.stderr)
 
 
-# ============ 网页抓取函数 ============
-
-def fetch_url_content(url, timeout=15):
-    """抓取网页内容"""
-    headers = {
-        'User-Agent': random.choice(USER_AGENTS),
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-    }
+def check_captcha(page, headless):
+    """检测验证码"""
+    indicators = ['wappass.baidu.com', 'captcha', '验证']
 
     try:
-        response = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
+        url = page.url.lower()
+        content = page.content().lower()
 
-        # 处理编码
-        if response.encoding is None or response.encoding.lower() == 'iso-8859-1':
-            content_type = response.headers.get('content-type', '')
-            if 'charset=' in content_type:
-                response.encoding = content_type.split('charset=')[-1].split(';')[0].strip()
-            else:
-                response.encoding = 'utf-8'
+        is_captcha = any(i in url for i in indicators) or '百度安全验证' in content
 
-        html = response.text
+        if is_captcha:
+            if headless:
+                print("\n检测到验证码，后台模式无法处理", file=sys.stderr)
+                return False
 
-        # 解析内容
-        if HAS_BS4:
-            soup = BeautifulSoup(html, 'html.parser')
+            print("\n" + "=" * 50, file=sys.stderr)
+            print("请在Chrome窗口中完成验证...", file=sys.stderr)
+            print("=" * 50 + "\n", file=sys.stderr)
 
-            # 移除无关元素
-            for tag in soup(['script', 'style', 'nav', 'footer', 'header', 'aside', 'iframe', 'noscript']):
-                tag.decompose()
-
-            # 提取正文
-            # 尝试常见的内容容器
-            content_selectors = [
-                'article', 'main', '.content', '.article', '.post', '.entry',
-                '#content', '#article', '.main-content', '.post-content',
-                'body'
-            ]
-
-            content = None
-            for selector in content_selectors:
-                elements = soup.select(selector)
-                if elements:
-                    content = elements[0]
-                    break
-
-            if content:
-                text = content.get_text(separator='\n', strip=True)
-            else:
-                text = soup.get_text(separator='\n', strip=True)
-
-            # 提取标题
-            title_tag = soup.find('title')
-            title = title_tag.get_text(strip=True) if title_tag else ''
-
-            # 提取 meta description
-            desc_tag = soup.find('meta', attrs={'name': 'description'})
-            description = desc_tag.get('content', '') if desc_tag else ''
-
-        else:
-            # 简单正则提取
-            title_match = re.search(r'<title[^>]*>([^<]+)</title>', html, re.IGNORECASE)
-            title = title_match.group(1).strip() if title_match else ''
-
-            # 移除脚本和样式
-            text = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL | re.IGNORECASE)
-            text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.DOTALL | re.IGNORECASE)
-            text = re.sub(r'<[^>]+>', ' ', text)
-            text = re.sub(r'\s+', ' ', text).strip()
-            description = ''
-
-        # 清理文本
-        lines = [line.strip() for line in text.split('\n') if line.strip()]
-        text = '\n'.join(lines)
-
-        # 截断过长内容
-        if len(text) > 10000:
-            text = text[:10000] + '\n... (内容已截断)'
-
-        return {
-            'success': True,
-            'title': title,
-            'description': description,
-            'content': text,
-            'url': response.url,  # 最终URL（可能有重定向）
-            'length': len(text)
-        }
-
-    except Exception as e:
-        return {
-            'success': False,
-            'error': str(e),
-            'url': url
-        }
-
-
-def resolve_baidu_link(baidu_url, timeout=10):
-    """解析百度跳转链接，获取真实URL"""
-    headers = {
-        'User-Agent': random.choice(USER_AGENTS),
-    }
-
-    try:
-        # 发送 HEAD 请求获取重定向后的 URL
-        response = requests.head(baidu_url, headers=headers, timeout=timeout, allow_redirects=True)
-        return response.url
+            start = time.time()
+            while time.time() - start < 300:
+                time.sleep(1)
+                try:
+                    if not any(i in page.url.lower() for i in indicators):
+                        content = page.content().lower()
+                        if '百度安全验证' not in content:
+                            print("验证完成！", file=sys.stderr)
+                            time.sleep(1)
+                            return True
+                except:
+                    pass
+            return False
     except:
         pass
+    return True
+
+
+def search(query, limit=50, headless=True):
+    """执行搜索
+
+    Args:
+        query: 搜索关键词
+        limit: 结果数量
+        headless: True=后台运行，False=显示窗口
+    """
+    if not HAS_PLAYWRIGHT:
+        print("请安装: pip install playwright", file=sys.stderr)
+        return []
+
+    if not start_chrome(headless=headless):
+        return []
+
+    results = []
+    browser = None
 
     try:
-        # 如果 HEAD 失败，尝试 GET
-        response = requests.get(baidu_url, headers=headers, timeout=timeout, allow_redirects=True, stream=True)
-        return response.url
-    except:
-        return baidu_url
+        with sync_playwright() as p:
+            browser = p.chromium.connect_over_cdp(f'http://127.0.0.1:{CHROME_DEBUG_PORT}')
+            context = browser.contexts[0] if browser.contexts else browser.new_context()
+            page = context.pages[0] if context.pages else context.new_page()
 
+            page.goto('https://www.baidu.com', timeout=30000)
+            if not check_captcha(page, headless):
+                return []
 
-def fetch_multiple_urls(urls, max_workers=5, save_dir=None):
-    """批量抓取多个URL"""
-    results = []
+            for pagenum in range(1, (limit // 10) + 2):
+                pn = (pagenum - 1) * 10
+                url = f"https://www.baidu.com/s?wd={urllib.parse.quote(query)}&pn={pn}"
 
-    def fetch_one(url_info):
-        idx, baidu_url, title = url_info
+                page.goto(url, timeout=30000)
+                time.sleep(2)
+                if not check_captcha(page, headless):
+                    break
 
-        # 解析真实URL
-        real_url = resolve_baidu_link(baidu_url)
+                try:
+                    page.wait_for_selector('div.result', timeout=10000)
+                except:
+                    continue
 
-        # 抓取内容
-        content_result = fetch_url_content(real_url)
-        content_result['original_url'] = baidu_url
-        content_result['search_title'] = title
-        content_result['real_url'] = real_url
+                html = page.content()
 
-        # 保存到文件
-        if save_dir and content_result['success']:
-            os.makedirs(save_dir, exist_ok=True)
-            url_hash = hashlib.md5(real_url.encode()).hexdigest()[:8]
-            filename = f"{url_hash}.txt"
-            filepath = os.path.join(save_dir, filename)
+                if HAS_BS4:
+                    soup = BeautifulSoup(html, 'html.parser')
+                    for item in soup.select('div.result, div.c-container'):
+                        title_tag = item.select_one('h3 a')
+                        if title_tag:
+                            title = title_tag.get_text(strip=True)
+                            if '广告' not in title and '推广' not in title:
+                                result = {
+                                    'title': title,
+                                    'url': title_tag.get('href', ''),
+                                    'abstract': (item.select_one('.c-abstract') or item).get_text(strip=True)[:300],
+                                    'score': 1.0
+                                }
+                                # 计算质量分数
+                                result['score'] = calculate_quality_score(result)
+                                results.append(result)
 
-            with open(filepath, 'w', encoding='utf-8') as f:
-                f.write(f"标题: {content_result['title']}\n")
-                f.write(f"URL: {real_url}\n")
-                f.write(f"抓取时间: {datetime.now().isoformat()}\n")
-                f.write("=" * 50 + "\n\n")
-                f.write(content_result['content'])
+                if len(results) >= limit:
+                    break
 
-            # 返回适合当前系统的路径格式
-            content_result['local_file'] = get_display_path(filepath)
-
-        return content_result
-
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        url_list = [(i, r['url'], r['title']) for i, r in enumerate(urls)]
-        futures = {executor.submit(fetch_one, url_info): url_info for url_info in url_list}
-
-        for future in as_completed(futures):
+    except Exception as e:
+        print(f"错误: {e}", file=sys.stderr)
+    finally:
+        # 通过Playwright关闭浏览器
+        if browser:
             try:
-                result = future.result()
+                browser.close()
+                print("Chrome已关闭", file=sys.stderr)
+            except:
+                # 如果Playwright关闭失败，使用系统方法
+                close_chrome()
+
+    # 去重
+    seen = set()
+    unique = []
+    for r in results:
+        if r['url'] not in seen:
+            seen.add(r['url'])
+            unique.append(r)
+
+    # 按质量分数排序
+    unique.sort(key=lambda x: x.get('score', 1.0), reverse=True)
+
+    return unique[:limit]
+
+
+def calculate_quality_score(result):
+    """根据URL和标题计算质量分数
+
+    评分规则：
+    - 官方文档/开源项目: python.org, github.com, gitee.com 等 × 2.5
+    - 技术社区: stackoverflow, csdn, juejin, zhihu 等 × 1.4~2.3
+    - 官方机构: edu.cn, gov.cn × 1.8
+    - 企业官网: 主要企业域名 × 2.0
+    - 新闻媒体: 主流新闻网站 × 1.5
+    - 低质量: 贴吧、论坛灌水等 × 0.3~0.5
+    """
+    url = result.get('url', '').lower()
+    title = result.get('title', '').lower()
+
+    # 基础分
+    base_score = 1.0
+
+    # 官方文档/开源项目 (× 2.5)
+    official_patterns = ['python.org', 'github.com', 'gitee.com', 'pypi.org',
+                        'readthedocs', 'docs.', 'developer.', 'documentation']
+    for pattern in official_patterns:
+        if pattern in url:
+            return base_score * 2.5
+
+    # 官方机构 (× 1.8)
+    gov_patterns = ['.gov.cn', '.edu.cn', 'gov.cn', 'edu.cn']
+    for pattern in gov_patterns:
+        if pattern in url:
+            return base_score * 1.8
+
+    # 技术社区 (× 1.4~2.3)
+    tech_community = {
+        'stackoverflow.com': 2.3,
+        'csdn.net': 1.8,
+        'juejin.cn': 1.9,
+        'zhihu.com': 1.6,
+        'segmentfault.com': 1.8,
+        'infoq.cn': 2.0,
+        'jb51.net': 1.4,
+        'w3cschool': 1.7,
+        'runoob.com': 1.7,
+    }
+    for domain, multiplier in tech_community.items():
+        if domain in url:
+            return base_score * multiplier
+
+    # 企业官网 (× 2.0)
+    enterprise_patterns = ['.com.cn', '官方网站', '官网']
+    for pattern in enterprise_patterns:
+        if pattern in url or pattern in title:
+            return base_score * 2.0
+
+    # 新闻媒体 (× 1.5)
+    news_patterns = ['news.', 'xinwen', 'sina.com', 'qq.com', 'sohu.com',
+                     '163.com', 'ifeng.com', 'people.com.cn', 'xinhua']
+    for pattern in news_patterns:
+        if pattern in url:
+            return base_score * 1.5
+
+    # 低质量内容 (× 0.3~0.5)
+    low_quality = ['tieba.baidu.com', 'forum', 'bbs', '贴吧', '灌水']
+    for pattern in low_quality:
+        if pattern in url or pattern in title:
+            return base_score * 0.3
+
+    return base_score
+
+
+def fetch_urls(urls, save_dir=None, delay=1.0, headless=True):
+    """抓取网页 - 使用Playwright动态渲染
+
+    Args:
+        urls: URL列表
+        save_dir: 保存目录
+        delay: 请求间隔
+        headless: True=后台运行，False=显示窗口
+    """
+    if not HAS_PLAYWRIGHT:
+        print("Playwright未安装，使用静态抓取...", file=sys.stderr)
+        return fetch_urls_static(urls, save_dir, delay)
+
+    results = []
+    browser = None
+
+    try:
+        with sync_playwright() as p:
+            # 启动浏览器
+            browser = p.chromium.launch(headless=headless)
+            context = browser.new_context(
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+            )
+            page = context.new_page()
+            page.set_default_timeout(30000)
+
+            for i, url in enumerate(urls):
+                print(f"抓取 [{i+1}/{len(urls)}]: {url[:50]}...", file=sys.stderr)
+
+                if delay and i > 0:
+                    time.sleep(delay)
+
+                try:
+                    # 访问页面
+                    page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                    time.sleep(2)  # 等待JS渲染
+
+                    # 等待网络空闲
+                    try:
+                        page.wait_for_load_state("networkidle", timeout=10000)
+                    except:
+                        pass
+
+                    # 检测反爬
+                    html = page.content()
+                    final_url = page.url
+
+                    anti_patterns = ['百度安全验证', '安全验证', '验证码', 'captcha',
+                                    'wappass.baidu.com', '请输入验证码', '访问过于频繁']
+                    is_anti = any(p.lower() in html.lower() for p in anti_patterns)
+
+                    if is_anti:
+                        result = {
+                            'success': False,
+                            'error': '遇到反爬限制',
+                            'url': url,
+                            'anti_crawl': True
+                        }
+                    else:
+                        # 解析内容
+                        if HAS_BS4:
+                            soup = BeautifulSoup(html, 'html.parser')
+                            for tag in soup(['script', 'style', 'nav', 'footer', 'header', 'aside', 'iframe']):
+                                tag.decompose()
+
+                            title = soup.find('title').get_text(strip=True) if soup.find('title') else ''
+
+                            # 提取正文
+                            content_selectors = ['article', 'main', '.content', '.article', '.post',
+                                               '.entry-content', '.post-content', '#content', 'body']
+                            content_text = ''
+                            for selector in content_selectors:
+                                elements = soup.select(selector)
+                                if elements:
+                                    best_elem = max(elements, key=lambda e: len(e.get_text()))
+                                    content_text = best_elem.get_text(separator='\n', strip=True)
+                                    if len(content_text) > 200:
+                                        break
+
+                            if not content_text:
+                                content_text = soup.get_text(separator='\n', strip=True)
+                        else:
+                            title_match = re.search(r'<title[^>]*>([^<]+)</title>', html, re.IGNORECASE)
+                            title = title_match.group(1).strip() if title_match else ''
+                            text = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL | re.IGNORECASE)
+                            text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.DOTALL | re.IGNORECASE)
+                            text = re.sub(r'<[^>]+>', '\n', text)
+                            content_text = re.sub(r'\n+', '\n', text).strip()
+
+                        # 清理和截断
+                        content_text = '\n'.join(line.strip() for line in content_text.split('\n') if line.strip())
+                        if len(content_text) > 15000:
+                            content_text = content_text[:15000] + '\n... (内容已截断)'
+
+                        result = {
+                            'success': True,
+                            'title': title,
+                            'content': content_text,
+                            'url': final_url,
+                            'original_url': url,
+                            'length': len(content_text),
+                            'fetch_type': 'playwright'
+                        }
+
+                        # 保存为Markdown文件
+                        if save_dir:
+                            os.makedirs(save_dir, exist_ok=True)
+                            safe_title = re.sub(r'[\\/:*?"<>|]', '_', title)[:50]
+                            url_hash = hashlib.md5(url.encode()).hexdigest()[:8]
+                            filepath = os.path.join(save_dir, f"{safe_title}_{url_hash}.md")
+                            with open(filepath, 'w', encoding='utf-8') as f:
+                                f.write(f"# {title}\n\n")
+                                f.write(f"- **URL**: {final_url}\n")
+                                f.write(f"- **原始URL**: {url}\n")
+                                f.write(f"- **抓取时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                                f.write(f"- **抓取方式**: playwright\n")
+                                f.write(f"- **内容长度**: {len(content_text)} 字符\n\n")
+                                f.write("---\n\n")
+                                f.write("## 正文内容\n\n")
+                                f.write(content_text)
+                            result['file'] = filepath
+
+                except Exception as e:
+                    result = {'success': False, 'error': str(e), 'url': url}
+
                 results.append(result)
-            except Exception as e:
-                results.append({
-                    'success': False,
-                    'error': str(e)
-                })
+
+    except Exception as e:
+        print(f"Playwright错误: {e}", file=sys.stderr)
+        return fetch_urls_static(urls, save_dir, delay)
+    finally:
+        if browser:
+            try:
+                browser.close()
+            except:
+                pass
 
     return results
 
 
-# ============ AI 总结函数 ============
+def fetch_urls_static(urls, save_dir=None, delay=1.0):
+    """静态抓取网页（备用方案）"""
+    results = []
 
-def summarize_content(query, contents, api_key=None, api_base=None, model=None):
-    """使用 LLM 总结内容"""
+    for i, url in enumerate(urls):
+        print(f"静态抓取 [{i+1}/{len(urls)}]: {url[:50]}...", file=sys.stderr)
 
-    # 获取 API 配置
-    api_key = api_key or os.environ.get('LLM_API_KEY') or os.environ.get('OPENAI_API_KEY')
-    api_base = api_base or os.environ.get('LLM_API_BASE') or os.environ.get('OPENAI_API_BASE') or 'https://api.openai.com/v1'
-    model = model or os.environ.get('LLM_MODEL') or os.environ.get('OPENAI_MODEL') or 'gpt-3.5-turbo'
+        try:
+            if delay and i > 0:
+                time.sleep(delay)
 
-    if not api_key:
-        return {
-            'success': False,
-            'error': '未配置 LLM API。请设置环境变量 LLM_API_KEY 和 LLM_API_BASE'
-        }
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0'}
+            resp = requests.get(url, headers=headers, timeout=15, allow_redirects=True)
 
-    # 构建内容摘要
-    content_texts = []
-    for i, c in enumerate(contents[:10]):  # 最多处理10条
-        if c.get('success') and c.get('content'):
-            text = c['content'][:2000]  # 每条最多2000字
-            content_texts.append(f"【来源 {i+1}】{c['title']}\nURL: {c['real_url']}\n内容:\n{text}\n")
+            if HAS_BS4:
+                soup = BeautifulSoup(resp.text, 'html.parser')
+                for tag in soup(['script', 'style', 'nav', 'footer']):
+                    tag.decompose()
+                text = soup.get_text(separator='\n', strip=True)[:10000]
+                title = soup.find('title').get_text(strip=True) if soup.find('title') else ''
+            else:
+                text = re.sub(r'<[^>]+>', ' ', resp.text)[:10000]
+                title = ''
 
-    combined_content = "\n---\n".join(content_texts)
-
-    prompt = f"""你是一个专业的信息分析助手。用户搜索了「{query}」，以下是抓取到的网页内容。
-
-请完成以下任务：
-1. 总结这些内容的核心信息（200-500字）
-2. 列出关键发现（3-5条）
-3. 如果有矛盾或不一致的地方，请指出
-4. 给出参考建议（如适用）
-
-网页内容：
-{combined_content}
-
-请按以下格式输出：
-
-## 内容总结
-[总结内容]
-
-## 关键发现
-1. [发现1]
-2. [发现2]
-...
-
-## 参考资料
-- [标题1](URL1)
-- [标题2](URL2)
-...
-"""
-
-    try:
-        headers = {
-            'Content-Type': 'application/json',
-            'Authorization': f'Bearer {api_key}'
-        }
-
-        data = {
-            'model': model,
-            'messages': [{'role': 'user', 'content': prompt}],
-            'temperature': 0.5,
-            'max_tokens': 2000
-        }
-
-        response = requests.post(
-            f'{api_base.rstrip("/")}/chat/completions',
-            headers=headers,
-            json=data,
-            timeout=60
-        )
-
-        if response.status_code != 200:
-            return {
-                'success': False,
-                'error': f'LLM API 调用失败: {response.status_code}'
+            result = {
+                'success': True,
+                'title': title,
+                'content': text,
+                'url': resp.url,
+                'original_url': url,
+                'length': len(text),
+                'fetch_type': 'static'
             }
 
-        content = response.json()['choices'][0]['message']['content']
+            # 保存为Markdown文件
+            if save_dir:
+                os.makedirs(save_dir, exist_ok=True)
+                safe_title = re.sub(r'[\\/:*?"<>|]', '_', title)[:50] if title else 'untitled'
+                url_hash = hashlib.md5(url.encode()).hexdigest()[:8]
+                filepath = os.path.join(save_dir, f"{safe_title}_{url_hash}.md")
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    f.write(f"# {title}\n\n")
+                    f.write(f"- **URL**: {resp.url}\n")
+                    f.write(f"- **原始URL**: {url}\n")
+                    f.write(f"- **抓取时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    f.write(f"- **抓取方式**: static\n")
+                    f.write(f"- **内容长度**: {len(text)} 字符\n\n")
+                    f.write("---\n\n")
+                    f.write("## 正文内容\n\n")
+                    f.write(text)
+                result['file'] = filepath
 
-        return {
-            'success': True,
-            'summary': content,
-            'model': model,
-            'sources_count': len(contents)
-        }
+            results.append(result)
 
-    except Exception as e:
-        return {
-            'success': False,
-            'error': str(e)
-        }
+        except Exception as e:
+            results.append({'success': False, 'error': str(e), 'url': url})
+
+    return results
 
 
-# ============ 主函数 ============
+def compile_results(query, results, fetched, save_dir, session_id):
+    """整理抓取结果，生成最终Markdown报告
+
+    Args:
+        query: 搜索关键词
+        results: 搜索结果列表
+        fetched: 抓取结果列表
+        save_dir: 保存目录
+        session_id: 会话ID
+    """
+    if not save_dir:
+        return None
+
+    os.makedirs(save_dir, exist_ok=True)
+    report_path = os.path.join(save_dir, f"搜索报告_{session_id}.md")
+
+    with open(report_path, 'w', encoding='utf-8') as f:
+        # 标题
+        f.write(f"# 搜索报告：{query}\n\n")
+        f.write(f"> 生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"> 会话ID：{session_id}\n\n")
+
+        # 搜索概况
+        f.write("## 搜索概况\n\n")
+        f.write(f"- **搜索关键词**: {query}\n")
+        f.write(f"- **搜索结果数**: {len(results)} 条\n")
+        fetched_success = sum(1 for r in fetched if r.get('success'))
+        f.write(f"- **抓取成功数**: {fetched_success}/{len(fetched)} 条\n\n")
+
+        # 参考链接
+        f.write("## 参考链接\n\n")
+        f.write("| 序号 | 标题 | URL | 质量分数 |\n")
+        f.write("|------|------|-----|----------|\n")
+        for i, r in enumerate(results[:30], 1):
+            title = r.get('title', 'N/A')[:40]
+            url = r.get('url', '')
+            score = r.get('score', 1.0)
+            f.write(f"| {i} | {title} | [链接]({url}) | {score:.2f} |\n")
+        f.write("\n")
+
+        # 抓取内容摘要
+        f.write("## 抓取内容摘要\n\n")
+        for i, r in enumerate(fetched, 1):
+            if r.get('success'):
+                title = r.get('title', '无标题')
+                url = r.get('url', '')
+                content_len = r.get('length', 0)
+                fetch_type = r.get('fetch_type', 'unknown')
+                filepath = r.get('file', '')
+
+                f.write(f"### {i}. {title}\n\n")
+                f.write(f"- **URL**: {url}\n")
+                f.write(f"- **内容长度**: {content_len} 字符\n")
+                f.write(f"- **抓取方式**: {fetch_type}\n")
+                if filepath:
+                    f.write(f"- **本地文件**: `{os.path.basename(filepath)}`\n")
+                f.write("\n")
+
+                # 内容预览（前500字符）
+                content = r.get('content', '')
+                if content:
+                    preview = content[:500]
+                    if len(content) > 500:
+                        preview += '...'
+                    f.write("**内容预览**:\n\n")
+                    f.write("```\n")
+                    f.write(preview)
+                    f.write("\n```\n\n")
+
+                f.write("---\n\n")
+
+        # 数据来源
+        f.write("## 数据来源\n\n")
+        f.write("本次搜索数据来源于百度搜索，抓取时间为标注时间。\n\n")
+        f.write("### 本地存档文件列表\n\n")
+        for r in fetched:
+            if r.get('file'):
+                filepath = r['file']
+                f.write(f"- [{os.path.basename(filepath)}]({os.path.basename(filepath)})\n")
+
+    print(f"\n报告已生成: {report_path}", file=sys.stderr)
+    return report_path
+
+
+def read_all_md_files(save_dir):
+    """读取目录下所有md文件内容
+
+    Args:
+        save_dir: 保存目录
+
+    Returns:
+        dict: {filename: content}
+    """
+    md_contents = {}
+
+    if not save_dir or not os.path.exists(save_dir):
+        return md_contents
+
+    for filename in os.listdir(save_dir):
+        if filename.endswith('.md') and not filename.startswith('搜索报告'):
+            filepath = os.path.join(save_dir, filename)
+            try:
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    md_contents[filename] = f.read()
+            except Exception as e:
+                print(f"读取文件失败 {filename}: {e}", file=sys.stderr)
+
+    return md_contents
+
+
+def generate_summary(query, results, md_contents, save_dir, session_id):
+    """生成搜索结果总结
+
+    Args:
+        query: 搜索关键词
+        results: 搜索结果列表
+        md_contents: 所有md文件内容
+        save_dir: 保存目录
+        session_id: 会话ID
+    """
+    summary_path = os.path.join(save_dir, f"搜索总结_{session_id}.md")
+
+    with open(summary_path, 'w', encoding='utf-8') as f:
+        f.write(f"# 搜索总结：{query}\n\n")
+        f.write(f"> 生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"> 会话ID：{session_id}\n\n")
+
+        # 统计信息
+        f.write("## 统计信息\n\n")
+        f.write(f"- **搜索结果**: {len(results)} 条\n")
+        f.write(f"- **抓取文件**: {len(md_contents)} 个\n")
+
+        # 计算总内容长度
+        total_length = sum(len(content) for content in md_contents.values())
+        f.write(f"- **总内容量**: {total_length:,} 字符\n\n")
+
+        # 参考来源
+        f.write("## 参考来源\n\n")
+        for i, (filename, content) in enumerate(md_contents.items(), 1):
+            # 提取标题（第一个#后面的内容）
+            title_match = re.search(r'^#\s+(.+)$', content, re.MULTILINE)
+            title = title_match.group(1) if title_match else filename
+            f.write(f"{i}. {title} (`{filename}`)\n")
+        f.write("\n")
+
+        # 内容整合
+        f.write("## 整合内容\n\n")
+        f.write("---\n\n")
+
+        for i, (filename, content) in enumerate(md_contents.items(), 1):
+            # 提取标题
+            title_match = re.search(r'^#\s+(.+)$', content, re.MULTILINE)
+            title = title_match.group(1) if title_match else filename
+
+            f.write(f"### 来源 {i}: {title}\n\n")
+
+            # 提取正文内容（## 正文内容 之后的部分）
+            content_match = re.search(r'## 正文内容\s*\n([\s\S]+)$', content)
+            if content_match:
+                body = content_match.group(1).strip()
+                # 截断过长内容
+                if len(body) > 3000:
+                    body = body[:3000] + '\n\n... (内容已截断)'
+                f.write(body)
+            else:
+                # 如果没有正文标记，使用原始内容
+                f.write(content[:3000])
+
+            f.write("\n\n---\n\n")
+
+        # 关键发现（基于内容长度排序）
+        f.write("## 主要内容概览\n\n")
+        sorted_contents = sorted(md_contents.items(), key=lambda x: len(x[1]), reverse=True)
+
+        for i, (filename, content) in enumerate(sorted_contents[:5], 1):
+            title_match = re.search(r'^#\s+(.+)$', content, re.MULTILINE)
+            title = title_match.group(1) if title_match else filename
+
+            # 提取URL
+            url_match = re.search(r'\*\*URL\*\*:\s*(.+)', content)
+            url = url_match.group(1) if url_match else 'N/A'
+
+            # 提取前200字符作为摘要
+            content_match = re.search(r'## 正文内容\s*\n([\s\S]+)$', content)
+            if content_match:
+                abstract = content_match.group(1).strip()[:200]
+            else:
+                abstract = content[:200]
+
+            f.write(f"### {i}. {title}\n\n")
+            f.write(f"**来源**: {url}\n\n")
+            f.write(f"**摘要**: {abstract}...\n\n")
+
+    print(f"总结已生成: {summary_path}", file=sys.stderr)
+    return summary_path
+
 
 def main():
-    parser = argparse.ArgumentParser(description='百度搜索 - 增强版')
-    parser.add_argument('query', nargs='+', help='搜索关键词')
-    parser.add_argument('-n', '--limit', type=int, default=100, help='搜索结果数量 (默认100)')
-    parser.add_argument('-t', '--top-percent', type=int, default=20, help='按分数筛选前N%% (默认20)')
+    parser = argparse.ArgumentParser(description='百度搜索增强版')
+    parser.add_argument('query', nargs='*', help='搜索词')
+    parser.add_argument('-n', '--limit', type=int, default=150, help='搜索结果数量 (默认150)')
+    parser.add_argument('-t', '--top-percent', type=float, default=35, help='按分数筛选前N%%的结果进行抓取 (默认35%%)')
     parser.add_argument('--min-score', type=float, default=1.0, help='最低分数阈值 (默认1.0)')
-    parser.add_argument('-f', '--fetch', type=int, default=0, help='抓取前N个结果的内容 (0=不抓取)')
-    parser.add_argument('-s', '--summarize', action='store_true', help='调用AI总结内容')
-    parser.add_argument('-o', '--output', type=str, default=None, help='保存内容的目录路径')
-    parser.add_argument('--max-workers', type=int, default=5, help='并发抓取数 (默认5)')
-    parser.add_argument('--json', action='store_true', help='输出JSON格式')
+    parser.add_argument('-o', '--output', help='保存目录 (默认 ~/Downloads/baidu_search/<session_id>)')
+    parser.add_argument('--session-id', help='指定会话ID')
+    parser.add_argument('--json', action='store_true', help='JSON输出')
+    parser.add_argument('--show-browser', action='store_true', help='显示浏览器窗口（用于处理验证码）')
+    parser.add_argument('--init', action='store_true', help='初始化Chrome（显示窗口）')
+    parser.add_argument('--close', action='store_true', help='关闭所有调试Chrome进程')
+    parser.add_argument('--no-summarize', action='store_true', help='不生成总结报告')
 
     args = parser.parse_args()
+
+    # 关闭Chrome
+    if args.close:
+        close_chrome()
+        if sys.platform == 'win32':
+            subprocess.run(['taskkill', '/F', '/IM', 'chrome.exe', '/FI',
+                          f'WINDOWTITLE eq *{CHROME_DEBUG_PORT}*'],
+                          capture_output=True)
+        print("Chrome调试进程已清理", file=sys.stderr)
+        return
+
+    # 初始化Chrome（显示窗口）
+    if args.init:
+        if start_chrome(headless=False):
+            print("Chrome已启动，请在浏览器中完成验证码验证")
+            print("验证完成后可使用 --close 关闭")
+            try:
+                while True:
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                close_chrome()
+        return
+
+    # 检查是否有搜索词
+    if not args.query:
+        parser.print_help()
+        return
+
     query = ' '.join(args.query)
 
-    output = {
-        'query': query,
-        'timestamp': datetime.now().isoformat()
-    }
+    # 创建会话目录
+    session_dir, session_id = get_session_dir(args.output, args.session_id)
+    print(f"搜索: {query}", file=sys.stderr)
+    print(f"会话ID: {session_id}", file=sys.stderr)
+    print(f"保存目录: {session_dir}", file=sys.stderr)
 
-    # 1. 搜索
-    print(f"正在搜索: {query}", file=sys.stderr)
-    all_results = search(query, total_results=args.limit)
-    output['total_found'] = len(all_results)
+    # 搜索（默认后台运行）
+    results = search(query, args.limit, headless=not args.show_browser)
+    print(f"找到 {len(results)} 条结果", file=sys.stderr)
 
-    # 2. 分数筛选
-    filtered_results, threshold = filter_by_score(all_results, args.top_percent, args.min_score)
-    output['score_threshold'] = threshold
-    output['filtered_count'] = len(filtered_results)
-    output['filtered_results'] = filtered_results
+    if not results:
+        print("未找到搜索结果", file=sys.stderr)
+        return
 
-    print(f"找到 {len(all_results)} 条结果，筛选后 {len(filtered_results)} 条 (阈值: {threshold:.2f})", file=sys.stderr)
+    # 按分数筛选
+    # 方法1: 按百分比筛选
+    top_count = max(1, int(len(results) * args.top_percent / 100))
+    # 方法2: 按分数阈值筛选
+    filtered_results = [r for r in results if r.get('score', 1.0) >= args.min_score]
+    # 取两者的交集或较小值
+    fetch_count = min(top_count, len(filtered_results))
+    fetch_count = max(1, fetch_count)  # 至少抓取1个
 
-    # 3. 抓取内容
-    if args.fetch > 0 and filtered_results:
-        fetch_count = min(args.fetch, len(filtered_results))
-        print(f"正在抓取前 {fetch_count} 条结果...", file=sys.stderr)
+    print(f"筛选: 分数前{args.top_percent}% + 最低{args.min_score}分 = {fetch_count}条", file=sys.stderr)
 
-        save_dir = args.output
-        if save_dir:
-            save_dir = os.path.expanduser(save_dir)
-            os.makedirs(save_dir, exist_ok=True)
+    # 抓取网页
+    urls = [r['url'] for r in results[:fetch_count]]
+    fetched = fetch_urls(urls, session_dir, headless=not args.show_browser)
+    success_count = sum(1 for r in fetched if r.get('success'))
+    print(f"抓取成功: {success_count}/{len(urls)}", file=sys.stderr)
 
-        fetch_results = fetch_multiple_urls(
-            filtered_results[:fetch_count],
-            max_workers=args.max_workers,
-            save_dir=save_dir
-        )
-        output['fetched_results'] = fetch_results
-        output['save_dir'] = get_display_path(save_dir) if save_dir else None
+    # 生成搜索报告
+    if success_count > 0:
+        compile_results(query, results, fetched, session_dir, session_id)
 
-        success_count = sum(1 for r in fetch_results if r.get('success'))
-        print(f"成功抓取 {success_count}/{fetch_count} 条", file=sys.stderr)
-
-        # 显示保存位置
-        if save_dir and success_count > 0:
-            print(f"文件保存到: {get_display_path(save_dir)}", file=sys.stderr)
-
-        # 4. AI 总结
-        if args.summarize and fetch_results:
-            print("正在生成总结...", file=sys.stderr)
-            summary_result = summarize_content(query, fetch_results)
-            output['summary'] = summary_result
-
-            if summary_result['success']:
-                if not args.json:
-                    print("\n" + "=" * 60)
-                    print(summary_result['summary'])
-                    print("=" * 60)
-            else:
-                print(f"总结失败: {summary_result['error']}", file=sys.stderr)
+        # 读取所有md文件并生成总结
+        if not args.no_summarize:
+            md_contents = read_all_md_files(session_dir)
+            if md_contents:
+                summary_path = generate_summary(query, results, md_contents, session_dir, session_id)
+                print(f"\n总结文件: {summary_path}", file=sys.stderr)
 
     # 输出结果
     if args.json:
+        output = {
+            'query': query,
+            'session_id': session_id,
+            'save_dir': session_dir,
+            'total_results': len(results),
+            'fetched_count': fetch_count,
+            'success_count': success_count,
+            'results': [
+                {
+                    'index': i + 1,
+                    'title': r['title'],
+                    'url': r['url'],
+                    'score': r.get('score', 1.0),
+                    'abstract': r.get('abstract', '')[:200]
+                }
+                for i, r in enumerate(results)
+            ]
+        }
         print(json.dumps(output, ensure_ascii=False, indent=2))
     else:
-        # 友好的文本输出
         print("\n" + "=" * 60)
-        print(f"搜索: {query}")
-        print(f"共找到 {output['total_found']} 条，筛选后 {output['filtered_count']} 条")
+        print(f"搜索结果: {query}")
+        print(f"共找到 {len(results)} 条，抓取 {fetch_count} 条，成功 {success_count} 条")
         print("=" * 60)
 
-        for i, r in enumerate(filtered_results[:20], 1):
-            print(f"\n{i}. [{r['score']:.1f}] {r['title']}")
-            print(f"   {r['url']}")
+        # 显示前20条结果
+        for i, r in enumerate(results[:20], 1):
+            score = r.get('score', 1.0)
+            score_indicator = "★" * min(5, int(score * 2))
+            is_fetched = i <= fetch_count
+            fetch_mark = "✓" if is_fetched else " "
+            print(f"\n{i}. [{fetch_mark}] [{score_indicator}] {r['title']}")
+            print(f"   分数: {score:.2f}")
+            print(f"   链接: {r['url']}")
             if r.get('abstract'):
-                print(f"   {r['abstract'][:100]}...")
+                abstract = r['abstract'][:100] + ('...' if len(r['abstract']) > 100 else '')
+                print(f"   摘要: {abstract}")
+
+        print("\n" + "=" * 60)
+        print(f"会话目录: {session_dir}")
+        print("=" * 60)
 
 
 if __name__ == '__main__':
