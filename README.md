@@ -4,13 +4,20 @@
 
 ## Skill 列表
 
-### 百度搜索 (baidu-search) v1.1.0
+### 百度搜索 (baidu-search) v2.0.0
 
-中文网络搜索增强工具，支持大规模搜索、智能筛选、内容抓取和 AI 总结。
+中文网络搜索增强工具，支持大规模搜索、智能筛选、内容抓取和自动总结。
+
+**核心功能**：
+- 默认搜索 150 条结果
+- 智能筛选前 35% 高质量网页
+- Playwright 动态渲染抓取
+- Session 管理，文件独立保存
+- 自动生成 Markdown 报告和总结
 
 ```bash
 /baidu-search 关键词
-/baidu-search 苏州银行 -n 100 -f 10 -s
+/baidu-search 苏州银行 -n 100 -t 40
 ```
 
 ### 文件搜索 (file-searcher) v1.1.0
@@ -22,7 +29,7 @@
 /file-searcher 外包 --path C:\Documents --ext docx,pdf
 ```
 
-### 公文写作 (gongwen-writer) v1.0.0
+### 公文写作 (gongwen-writer) v1.2.1
 
 创建符合党政机关公文格式规范的 Word 文档，包括通知、报告、请示等公文类型。
 
@@ -52,6 +59,21 @@
 /gongwen-setup
 ```
 
+## 依赖环境
+
+所有插件推荐使用 Miniconda + dsbot_env 虚拟环境：
+
+```bash
+# 创建虚拟环境
+conda create -n dsbot_env python=3.10 -y
+conda activate dsbot_env
+
+# 安装依赖
+pip install -r baidu-search/requirements.txt
+pip install -r file-searcher/requirements.txt
+pip install -r gongwen-writer/requirements-minimal.txt
+```
+
 ## 更新插件
 
 ```
@@ -59,6 +81,23 @@
 ```
 
 找到已安装的插件，点击更新。
+
+## 更新日志
+
+### baidu-search v2.0.0 (2026-03-27)
+- 添加 Session ID 管理，每次搜索单独保存
+- 默认搜索 150 条结果
+- 智能筛选前 35% 自动抓取
+- Playwright 动态渲染
+- Markdown 格式保存
+- 自动生成搜索总结
+
+### file-searcher v1.1.0 (2026-03-26)
+- 支持 Word/PDF/Markdown 多格式搜索
+- 添加依赖环境配置说明
+
+### gongwen-writer v1.2.1 (2026-03-26)
+- 所有阿拉伯数字使用 Times New Roman 字体
 
 ## License
 
