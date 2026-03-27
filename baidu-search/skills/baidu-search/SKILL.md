@@ -134,7 +134,26 @@ python baidu_search.py "测试关键词" --no-summarize
 └─────────────────┘
 ```
 
-## 依赖安装
+## 环境配置
+
+### 方式一：使用 Miniconda + dsbot_env（推荐）
+
+```bash
+# 1. 安装 Miniconda（如未安装）
+# Windows: 下载 https://docs.conda.io/en/latest/miniconda.html
+
+# 2. 创建虚拟环境
+conda create -n dsbot_env python=3.10 -y
+conda activate dsbot_env
+
+# 3. 安装依赖
+pip install -r requirements.txt
+
+# 4. 安装 Playwright 浏览器
+playwright install chromium
+```
+
+### 方式二：直接安装
 
 ```bash
 # 基础依赖
@@ -143,4 +162,19 @@ pip install requests beautifulsoup4
 # 动态网页支持
 pip install playwright
 playwright install chromium
+```
+
+### 依赖包版本
+
+```
+requests>=2.28.0
+beautifulsoup4>=4.12.0
+playwright>=1.40.0
+```
+
+### 运行命令
+
+```bash
+# 使用 dsbot_env 环境
+/c/Users/admin/miniconda3/envs/dsbot_env/python.exe "$PLUGIN_DIR/scripts/baidu_search.py" "关键词"
 ```

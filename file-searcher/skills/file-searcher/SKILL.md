@@ -79,3 +79,39 @@ argument-hint: <关键词> [--path <目录>] [--ext <扩展名>]
 - PDF 文本提取可能不完整，取决于 PDF 格式
 - 扫描版 PDF（图片）无法搜索文字
 - 大文件可能需要较长处理时间
+
+## 环境配置
+
+### 方式一：使用 Miniconda + dsbot_env（推荐）
+
+```bash
+# 1. 安装 Miniconda（如未安装）
+# Windows: 下载 https://docs.conda.io/en/latest/miniconda.html
+
+# 2. 创建虚拟环境
+conda create -n dsbot_env python=3.10 -y
+conda activate dsbot_env
+
+# 3. 安装依赖
+pip install -r requirements.txt
+```
+
+### 方式二：直接安装
+
+```bash
+pip install python-docx PyPDF2
+```
+
+### 依赖包版本
+
+```
+python-docx>=0.8.11
+PyPDF2>=3.0.0
+```
+
+### 运行命令
+
+```bash
+# 使用 dsbot_env 环境
+/c/Users/admin/miniconda3/envs/dsbot_env/python.exe "$PLUGIN_DIR/scripts/file_searcher.py" "关键词"
+```

@@ -253,3 +253,38 @@ run.font.size = Pt(16)
 ## 相关参考
 
 详细格式规范请参阅 `references/gongwen-format.md` 文件。
+
+## 环境配置
+
+### 方式一：使用 Miniconda + dsbot_env（推荐）
+
+```bash
+# 1. 安装 Miniconda（如未安装）
+# Windows: 下载 https://docs.conda.io/en/latest/miniconda.html
+
+# 2. 创建虚拟环境
+conda create -n dsbot_env python=3.10 -y
+conda activate dsbot_env
+
+# 3. 安装依赖
+pip install -r requirements.txt
+```
+
+### 方式二：直接安装
+
+```bash
+pip install python-docx
+```
+
+### 依赖包版本
+
+```
+python-docx>=0.8.11
+```
+
+### 运行命令
+
+```bash
+# 使用 dsbot_env 环境
+/c/Users/admin/miniconda3/envs/dsbot_env/python.exe "$PLUGIN_DIR/scripts/gongwen_generator.py"
+```
