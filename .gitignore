@@ -7,3 +7,18 @@ temp_pack/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Claude runtime files
+cache/
+marketplaces/
+blocklist.json
+install-counts-cache.json
+installed_plugins.json
+known_marketplaces.json
+.python_path
+.orphaned_at
+
+# Temporary files
+*.tmp
+*.temp
+*.log
