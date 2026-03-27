@@ -1,0 +1,14 @@
+{
+  "name": "baidu-search",
+  "version": "1.1.0",
+  "description": "百度搜索增强版：大规模搜索、智能分数筛选、内容抓取、AI总结。适合搜索中文资料、中国本土信息、企业信息、新闻资讯等。",
+  "author": {
+    "name": "sjerold",
+    "url": "https://github.com/sjerold"
+  },
+  "repository": "https://github.com/sjerold/cc-skills.git",
+  "license": "MIT",
+  "keywords": ["baidu", "search", "chinese", "web-search", "中文搜索"],
+  "skills": ["./skills"],
+  "commands": ["./commands"]
+}

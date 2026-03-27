@@ -1,74 +1,54 @@
 @echo off
-chcp 65001 >nul
+chcp 65001 >/dev/null
 setlocal enabledelayedexpansion
 
 echo ========================================
-echo    Claude Code 插件打包工具
+echo    Claude Code Skills 打包工具
 echo ========================================
 echo.
 
-:: 设置变量
-set "PLUGIN_DIR=%~dp0"
-set "OUTPUT_DIR=%PLUGIN_DIR%dist"
-set "DATE_STR=%date:~0,4%%date:~5,2%%date:~8,2%"
+set "SCRIPT_DIR=%~dp0"
+set "OUTPUT_DIR=%SCRIPT_DIR%dist"
 
-:: 创建输出目录
 if not exist "%OUTPUT_DIR%" mkdir "%OUTPUT_DIR%"
 
-:: 打包 baidu-search
-echo [1/2] 打包 baidu-search...
-cd /d "%PLUGIN_DIR%"
-if exist "baidu-search" (
-    :: 创建临时目录
-    if exist "temp_pack" rmdir /s /q temp_pack
-    mkdir temp_pack\baidu-search
+echo 正在打包 Skills...
+echo.
 
-    :: 复制文件
-    xcopy /e /i /q "baidu-search\*" "temp_pack\baidu-search\"
+for /d %%d in ("%SCRIPT_DIR%skills\*") do (
+    set "SKILL_NAME=%%~nd"
+    echo [打包] !SKILL_NAME!
+
+    if exist "%SCRIPT_DIR%temp_pack" rmdir /s /q "%SCRIPT_DIR%temp_pack"
+    mkdir "%SCRIPT_DIR%temp_pack\!SKILL_NAME!"
+
+    :: 复制 skill 文件
+    xcopy /e /i /q "%%d\*" "%SCRIPT_DIR%temp_pack\!SKILL_NAME!\" >/dev/null
 
     :: 复制安装脚本
-    copy /y "install.bat" "temp_pack\baidu-search\"
-    copy /y "requirements.txt" "temp_pack\baidu-search\"
+    copy /y "%SCRIPT_DIR%install.bat" "%SCRIPT_DIR%temp_pack\!SKILL_NAME!\" >/dev/null
+
+    :: 确保包含 environment.yml
+    if exist "%%d\environment.yml" (
+        echo     √ 包含 environment.yml
+    ) else (
+        echo     ! 缺少 environment.yml
+    )
 
     :: 打包
-    cd temp_pack
-    powershell -command "Compress-Archive -Path 'baidu-search' -DestinationPath '..\dist\baidu-search-plugin.zip' -Force"
-    cd ..
+    cd /d "%SCRIPT_DIR%temp_pack"
+    powershell -command "Compress-Archive -Path '!SKILL_NAME!' -DestinationPath '..\dist\!SKILL_NAME!.zip' -Force"
 
-    :: 清理
-    rmdir /s /q temp_pack
-    echo     √ baidu-search-plugin.zip 已创建
-) else (
-    echo     × baidu-search 目录不存在
-)
+    cd /d "%SCRIPT_DIR%"
+    rmdir /s /q "%SCRIPT_DIR%temp_pack"
 
-:: 打包 file-searcher
-echo [2/2] 打包 file-searcher...
-if exist "file-searcher" (
-    if exist "temp_pack" rmdir /s /q temp_pack
-    mkdir temp_pack\file-searcher
-
-    xcopy /e /i /q "file-searcher\*" "temp_pack\file-searcher\"
-    copy /y "install.bat" "temp_pack\file-searcher\"
-    copy /y "requirements-file-searcher.txt" "temp_pack\file-searcher\requirements.txt"
-
-    cd temp_pack
-    powershell -command "Compress-Archive -Path 'file-searcher' -DestinationPath '..\dist\file-searcher-plugin.zip' -Force"
-    cd ..
-
-    rmdir /s /q temp_pack
-    echo     √ file-searcher-plugin.zip 已创建
-) else (
-    echo     × file-searcher 目录不存在
+    echo     √ dist\!SKILL_NAME!.zip
 )
 
 echo.
 echo ========================================
 echo 打包完成！输出目录: %OUTPUT_DIR%
 echo ========================================
-echo.
 
-:: 列出生成的文件
 dir /b "%OUTPUT_DIR%\*.zip"
-
 pause
