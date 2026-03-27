@@ -4,6 +4,23 @@
 
 ## Skill 列表
 
+### Token用量统计 (token-usage) v1.0.0
+
+统计和显示 Claude Code 的 Token 使用情况，支持按天、周、月查看。
+
+**核心功能**：
+- API 调用次数统计
+- 输入/输出 Token 统计
+- 支持按天、周、月、全部历史查看
+- 美观的命令行输出
+
+```bash
+/token-usage           # 显示今日统计
+/token-usage --week    # 显示本周统计
+/token-usage --month   # 显示本月统计
+/token-usage --all     # 显示所有历史统计
+```
+
 ### 百度搜索 (baidu-search) v2.0.0
 
 中文网络搜索增强工具，支持大规模搜索、智能筛选、内容抓取和自动总结。
@@ -74,6 +91,8 @@ pip install -r file-searcher/requirements.txt
 pip install -r gongwen-writer/requirements-minimal.txt
 ```
 
+**注意**: token-usage 插件无需额外依赖，使用 Python 标准库即可运行。
+
 ## 更新插件
 
 ```
@@ -83,6 +102,12 @@ pip install -r gongwen-writer/requirements-minimal.txt
 找到已安装的插件，点击更新。
 
 ## 更新日志
+
+### token-usage v1.0.0 (2026-03-27)
+- 首次发布
+- 支持 API 调用次数统计
+- 支持按天/周/月/全部历史查看 Token 用量
+- 无外部依赖，使用 Python 标准库
 
 ### baidu-search v2.0.0 (2026-03-27)
 - 添加 Session ID 管理，每次搜索单独保存

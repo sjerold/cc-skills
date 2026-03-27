@@ -1,0 +1,13 @@
+{
+  "name": "token-usage",
+  "version": "1.0.0",
+  "description": "Token usage statistics plugin for Claude Code. Track your token usage by day, week, or month.",
+  "author": {
+    "name": "sjerold",
+    "url": "https://github.com/sjerold"
+  },
+  "repository": "https://github.com/sjerold/cc-skills.git",
+  "license": "MIT",
+  "keywords": ["token", "usage", "statistics", "tracking", "claude-code"],
+  "skills": ["./skills/token-usage"]
+}

@@ -1,12 +1,23 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "cc-skills",
-  "description": "实用的 Claude Code Skill 插件合集：百度搜索、文件搜索、公文写作等",
+  "description": "实用的 Claude Code Skill 插件合集：百度搜索、文件搜索、公文写作、Token用量统计等",
   "owner": {
     "name": "sjerold",
     "url": "https://github.com/sjerold"
   },
   "plugins": [
+    {
+      "name": "token-usage",
+      "description": "Token用量统计插件，统计Claude Code的API调用次数、输入/输出Token使用情况，支持按天/周/月查看。",
+      "category": "productivity",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/sjerold/cc-skills.git",
+        "path": "token-usage"
+      },
+      "homepage": "https://github.com/sjerold/cc-skills/tree/main/token-usage"
+    },
     {
       "name": "baidu-search",
       "description": "百度搜索增强版：大规模搜索、智能分数筛选、内容抓取、自动总结。支持Session管理、Playwright动态渲染、Markdown保存。",
