@@ -1,0 +1,22 @@
+{
+  "name": "web-article-fetcher",
+  "description": "网页文章抓取：从指定URL发现文章链接并批量抓取正文，保存为Markdown格式，支持增量更新。",
+  "version": "1.0.0",
+  "author": {
+    "name": "sjerold",
+    "url": "https://github.com/sjerold"
+  },
+  "repository": "https://github.com/sjerold/cc-skills.git",
+  "license": "MIT",
+  "skills": ["./skills/web-article-fetcher"],
+  "keywords": [
+    "web-fetcher",
+    "article",
+    "content-extraction",
+    "playwright",
+    "markdown",
+    "网页抓取",
+    "文章采集",
+    "增量更新"
+  ]
+}
