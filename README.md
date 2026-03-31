@@ -4,6 +4,23 @@
 
 ## Skill 列表
 
+### 网页文章抓取 (web-article-fetcher) v1.0.0
+
+从指定网页发现文章链接并批量抓取正文内容，保存为Markdown格式。
+
+**核心功能**：
+- 自动发现网页中的文章链接
+- 智能过滤导航、广告、分页等非文章链接
+- 支持静态和动态页面（Playwright渲染）
+- 增量更新，自动跳过已抓取文章
+- 按网站分子目录保存Markdown文件
+- 支持网站别名（如"移动支付网"）
+
+```bash
+/web-article-fetcher https://www.mpaypass.com.cn/
+抓取网页内容 移动支付网 -n 50
+```
+
 ### Token用量统计 (token-usage) v1.0.0
 
 统计和显示 Claude Code 的 Token 使用情况，支持按天、周、月查看。
@@ -76,6 +93,8 @@
 /gongwen-setup
 ```
 
+注意：web-article-fetcher 使用与 baidu-search 相同的依赖环境，无需额外安装。
+
 ## 依赖环境
 
 所有插件推荐使用 Miniconda + dsbot_env 虚拟环境：
@@ -102,6 +121,15 @@ pip install -r gongwen-writer/requirements-minimal.txt
 找到已安装的插件，点击更新。
 
 ## 更新日志
+
+### web-article-fetcher v1.0.0 (2026-03-31)
+- 首次发布
+- 自动发现网页文章链接
+- 智能过滤非文章链接
+- 支持Playwright动态页面渲染
+- 增量更新，避免重复抓取
+- 按网站分子目录保存Markdown
+- 支持网站别名（移动支付网、36氪等）
 
 ### token-usage v1.0.0 (2026-03-27)
 - 首次发布
