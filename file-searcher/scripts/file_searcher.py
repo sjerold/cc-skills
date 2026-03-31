@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-文件内容搜索工具
+文件内容搜索工具 - 优化版
 支持在 Word (.docx)、PDF、Markdown、文本等文件中搜索关键词
+优化: 多进程并行、文件大小限制、快速PDF提取
 """
 
 import sys
@@ -12,6 +13,8 @@ import json
 import re
 import warnings
 from pathlib import Path
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import time
 
 # 设置 UTF-8 输出
 import io
@@ -22,6 +25,11 @@ warnings.filterwarnings('ignore', category=UserWarning, module='PyPDF2')
 
 # 默认搜索路径
 DEFAULT_PATH = r"C:\Users\admin\Downloads"
+
+# 性能配置
+MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB 文件大小限制
+PDF_TIMEOUT = 10  # PDF处理超时秒数
+MAX_PDF_PAGES = 100  # PDF最大页数限制
 
 # 支持的文件扩展名
 SUPPORTED_EXTENSIONS = {
@@ -52,33 +60,42 @@ def extract_text_from_docx(file_path):
         return None, f"读取 Word 文件失败: {str(e)}"
 
 
-def extract_text_from_pdf(file_path):
-    """从 PDF 文档提取文本"""
+def extract_text_from_pdf(file_path, timeout=PDF_TIMEOUT, max_pages=MAX_PDF_PAGES):
+    """从 PDF 文档提取文本 - 优化版，使用 PyMuPDF (fitz) 优先"""
     try:
-        import pdfplumber
+        # 优先使用 PyMuPDF (fitz)，速度最快
+        import fitz  # PyMuPDF
         text = []
-        with pdfplumber.open(file_path) as pdf:
-            for page_num, page in enumerate(pdf.pages):
+        doc = fitz.open(file_path)
+        page_count = len(doc)
+        # 限制页数
+        for page_num in range(min(page_count, max_pages)):
+            page = doc[page_num]
+            page_text = page.get_text()
+            if page_text:
+                text.append(f"[第{page_num + 1}页]\n{page_text}")
+        doc.close()
+        return '\n'.join(text), None
+    except ImportError:
+        pass
+    except Exception as e:
+        return None, f"读取 PDF 文件失败: {str(e)}"
+
+    # 回退到 PyPDF2
+    try:
+        import PyPDF2
+        text = []
+        with open(file_path, 'rb') as f:
+            reader = PyPDF2.PdfReader(f)
+            page_count = len(reader.pages)
+            for page_num in range(min(page_count, max_pages)):
+                page = reader.pages[page_num]
                 page_text = page.extract_text()
                 if page_text:
                     text.append(f"[第{page_num + 1}页]\n{page_text}")
         return '\n'.join(text), None
     except ImportError:
-        # 回退到 PyPDF2
-        try:
-            import PyPDF2
-            text = []
-            with open(file_path, 'rb') as f:
-                reader = PyPDF2.PdfReader(f)
-                for page_num, page in enumerate(reader.pages):
-                    page_text = page.extract_text()
-                    if page_text:
-                        text.append(f"[第{page_num + 1}页]\n{page_text}")
-            return '\n'.join(text), None
-        except ImportError:
-            return None, "需要安装 pdfplumber 或 PyPDF2"
-        except Exception as e:
-            return None, f"读取 PDF 文件失败: {str(e)}"
+        return None, "需要安装 PyMuPDF (pip install pymupdf) 或 PyPDF2"
     except Exception as e:
         return None, f"读取 PDF 文件失败: {str(e)}"
 
@@ -132,8 +149,39 @@ def search_in_text(text, keyword, context_chars=100):
     return matches
 
 
-def search_files(keyword, search_path, extensions=None, max_matches_per_file=3, show_progress=True):
-    """搜索文件"""
+def process_single_file(args):
+    """处理单个文件（用于并行处理）"""
+    file_path, ext, keyword, max_matches_per_file = args
+
+    # 根据文件类型提取文本
+    text = None
+    error = None
+
+    if ext in SUPPORTED_EXTENSIONS['docx']:
+        text, error = extract_text_from_docx(file_path)
+    elif ext in SUPPORTED_EXTENSIONS['pdf']:
+        text, error = extract_text_from_pdf(file_path)
+    else:
+        text, error = read_text_file(file_path)
+
+    if error:
+        return {'file': str(file_path), 'error': error, 'ext': ext}
+
+    if text:
+        matches = search_in_text(text, keyword)
+        if matches:
+            return {
+                'file': str(file_path),
+                'filename': Path(file_path).name,
+                'ext': ext,
+                'matches': matches[:max_matches_per_file],
+                'count': len(matches)
+            }
+    return None
+
+
+def search_files(keyword, search_path, extensions=None, max_matches_per_file=3, show_progress=True, max_workers=4):
+    """搜索文件 - 优化版，支持并行处理"""
     search_path = Path(search_path)
     if not search_path.exists():
         return {'error': f'路径不存在: {search_path}'}
@@ -150,6 +198,7 @@ def search_files(keyword, search_path, extensions=None, max_matches_per_file=3, 
     # 第一步：收集所有待处理的文件
     files_to_process = []
     total_files = 0
+    skipped_large = 0
 
     for file_path in search_path.rglob('*'):
         if not file_path.is_file():
@@ -165,50 +214,54 @@ def search_files(keyword, search_path, extensions=None, max_matches_per_file=3, 
         if ext_list and ext not in ext_list:
             continue
 
-        files_to_process.append((file_path, ext))
+        # 检查文件大小
+        try:
+            file_size = file_path.stat().st_size
+            if file_size > MAX_FILE_SIZE:
+                skipped_large += 1
+                continue
+        except:
+            continue
 
-    # 第二步：处理文件并显示进度
+        files_to_process.append((str(file_path), ext, keyword, max_matches_per_file))
+
+    # 第二步：并行处理文件
     results = []
     errors = []
 
-    # 创建进度条
+    # 创建进度条 (使用 stderr 避免 stdout 缓冲问题)
     if show_progress:
         try:
             from tqdm import tqdm
-            iterator = tqdm(files_to_process, desc="搜索进度", unit="文件",
-                          bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]")
+            pbar = tqdm(total=len(files_to_process), desc="搜索进度", unit="文件",
+                       bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]",
+                       file=sys.stderr)
         except ImportError:
-            iterator = files_to_process
-            print(f"正在搜索 {len(files_to_process)} 个文件...")
+            pbar = None
+            print(f"正在搜索 {len(files_to_process)} 个文件...", file=sys.stderr)
     else:
-        iterator = files_to_process
+        pbar = None
 
-    for file_path, ext in iterator:
-        # 根据文件类型提取文本
-        text = None
-        error = None
+    # 使用进程池并行处理
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(process_single_file, args): args[0] for args in files_to_process}
 
-        if ext in SUPPORTED_EXTENSIONS['docx']:
-            text, error = extract_text_from_docx(file_path)
-        elif ext in SUPPORTED_EXTENSIONS['pdf']:
-            text, error = extract_text_from_pdf(file_path)
-        else:
-            text, error = read_text_file(file_path)
+        for future in as_completed(futures):
+            if pbar:
+                pbar.update(1)
 
-        if error:
-            errors.append({'file': str(file_path), 'error': error})
-            continue
+            try:
+                result = future.result()
+                if result:
+                    if 'error' in result:
+                        errors.append(result)
+                    else:
+                        results.append(result)
+            except Exception as e:
+                pass
 
-        if text:
-            matches = search_in_text(text, keyword)
-            if matches:
-                results.append({
-                    'file': str(file_path),
-                    'filename': file_path.name,
-                    'ext': ext,
-                    'matches': matches[:max_matches_per_file],
-                    'count': len(matches)
-                })
+    if pbar:
+        pbar.close()
 
     return {
         'keyword': keyword,
@@ -217,6 +270,7 @@ def search_files(keyword, search_path, extensions=None, max_matches_per_file=3, 
         'total_files': total_files,
         'scanned_files': len(files_to_process),
         'matched_files': len(results),
+        'skipped_large': skipped_large,
         'errors': errors[:5]
     }
 
@@ -231,6 +285,8 @@ def format_output(result):
     lines.append(f"搜索关键词: 【{result['keyword']}】")
     lines.append(f"搜索路径: {result['path']}")
     lines.append(f"扫描文件: {result['scanned_files']} / {result['total_files']} (支持格式的文件 / 总文件)")
+    if result.get('skipped_large', 0) > 0:
+        lines.append(f"跳过大文件: {result['skipped_large']} 个 (>50MB)")
     lines.append(f"匹配文件: {result['matched_files']} 个")
     lines.append("=" * 60)
 
@@ -262,6 +318,7 @@ def main():
     parser.add_argument('--ext', '-e', default=None, help='文件扩展名，逗号分隔')
     parser.add_argument('--json', '-j', action='store_true', help='输出 JSON 格式')
     parser.add_argument('--max', '-m', type=int, default=3, help='每个文件最多显示的匹配数')
+    parser.add_argument('--workers', '-w', type=int, default=4, help='并行进程数')
     parser.add_argument('--no-progress', action='store_true', help='不显示进度条')
 
     args = parser.parse_args()
@@ -271,7 +328,8 @@ def main():
         args.path,
         args.ext,
         args.max,
-        show_progress=not args.no_progress
+        show_progress=not args.no_progress,
+        max_workers=args.workers
     )
 
     if args.json:
