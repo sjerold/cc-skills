@@ -17,8 +17,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # 添加common模块路径
 # 路径: xianfeng-search/scripts/feishu_navigator.py -> plugins/common/scripts
-_PLUGINS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-COMMON_PATH = os.path.join(os.path.dirname(_PLUGINS_DIR), 'common', 'scripts')
+_SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
+_PLUGIN_DIR = os.path.dirname(_SCRIPTS_DIR)
+_PLUGINS_DIR = os.path.dirname(_PLUGIN_DIR)
+COMMON_PATH = os.path.join(_PLUGINS_DIR, 'common', 'scripts')
 sys.path.insert(0, COMMON_PATH)
 
 from config import LOGIN_WAIT_TIMEOUT, PAGE_LOAD_TIMEOUT

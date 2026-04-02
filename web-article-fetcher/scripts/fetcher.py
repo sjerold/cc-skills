@@ -10,6 +10,9 @@
 3. 使用Playwright渲染动态页面
 4. 智能提取正文内容
 5. 保存为规范的Markdown文件
+
+改动：
+- 使用common模块统一Chrome管理（端口9222）
 """
 
 import sys
@@ -20,14 +23,19 @@ import os
 import time
 import hashlib
 import re
-import shutil
-import subprocess
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse, urljoin
 
 # 确保 UTF-8 编码
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
+# 添加common模块路径
+_SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
+_PLUGIN_DIR = os.path.dirname(_SCRIPTS_DIR)
+_PLUGINS_DIR = os.path.dirname(_PLUGIN_DIR)
+COMMON_PATH = os.path.join(_PLUGINS_DIR, 'common', 'scripts')
+sys.path.insert(0, COMMON_PATH)
 
 # ============ 依赖检查 ============
 
@@ -46,30 +54,27 @@ except ImportError:
 
 HAS_PLAYWRIGHT = False
 try:
-    from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
+    from playwright.sync_api import sync_playwright
     HAS_PLAYWRIGHT = True
 except ImportError:
     pass
 
+# 导入common模块
+try:
+    from chrome_manager import (
+        get_browser,
+        get_page,
+        close_browser,
+        is_chrome_debug_running,
+        start_debug_chrome
+    )
+    HAS_CHROME_MANAGER = True
+except ImportError as e:
+    print(f"无法导入chrome_manager: {e}", file=sys.stderr)
+    HAS_CHROME_MANAGER = False
+
 
 # ============ 配置 ============
-
-# Chrome调试端口（独立端口，避免与其他插件冲突）
-CHROME_DEBUG_PORT = 9225
-
-# Chrome配置目录
-if sys.platform == 'win32':
-    CHROME_USER_DATA_DIR = os.path.join(os.environ['LOCALAPPDATA'], 'Google', 'Chrome', 'User Data')
-    TEMP_CHROME_DIR = os.path.join(os.environ['TEMP'], 'chrome-article-profile')
-else:
-    CHROME_USER_DATA_DIR = os.path.expanduser('~/.config/google-chrome')
-    TEMP_CHROME_DIR = '/tmp/chrome-article-profile'
-
-# 需要复制的Chrome配置目录
-COPY_DIRS = ['Default', 'Profile 1', 'Profile 2']
-
-# Chrome进程PID文件
-CHROME_PID_FILE = os.path.join(TEMP_CHROME_DIR, '.chrome_pid')
 
 # 默认保存目录
 DEFAULT_OUTPUT_DIR = os.path.join(os.path.expanduser('~'), 'Downloads', 'web_article_fetcher')
@@ -125,173 +130,7 @@ ANTI_CRAWL_PATTERNS = [
 ]
 
 
-# ============ 模块1: Chrome管理 ============
-
-def get_chrome_path():
-    """获取Chrome路径"""
-    if sys.platform == 'win32':
-        paths = [
-            os.path.join(os.environ.get('PROGRAMFILES', ''), 'Google', 'Chrome', 'Application', 'chrome.exe'),
-            os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Google', 'Chrome', 'Application', 'chrome.exe'),
-        ]
-        for p in paths:
-            if os.path.exists(p):
-                return p
-    return 'chrome'
-
-
-def check_port_in_use(port):
-    """检查端口是否在使用"""
-    import socket
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.settimeout(1)
-    result = sock.connect_ex(('127.0.0.1', port))
-    sock.close()
-    return result == 0
-
-
-def copy_chrome_profile():
-    """复制Chrome配置到临时目录"""
-    print("正在复制Chrome配置...", file=sys.stderr)
-
-    # 如果已有临时目录，先删除
-    if os.path.exists(TEMP_CHROME_DIR):
-        try:
-            shutil.rmtree(TEMP_CHROME_DIR)
-        except:
-            pass
-
-    os.makedirs(TEMP_CHROME_DIR, exist_ok=True)
-
-    copied_count = 0
-    for dir_name in COPY_DIRS:
-        src = os.path.join(CHROME_USER_DATA_DIR, dir_name)
-        dst = os.path.join(TEMP_CHROME_DIR, dir_name)
-        if os.path.exists(src):
-            try:
-                # 只复制关键文件，跳过大文件和锁定文件
-                shutil.copytree(src, dst,
-                    ignore=shutil.ignore_patterns(
-                        'Cache*', 'GPUCache*', 'Code Cache*',
-                        'DawnGraphiteCache*', 'DawnWebGPUCache*',
-                        '*.lock', 'LOCK', 'lockfile',
-                        'Session Storage', 'IndexedDB', 'File System'
-                    ))
-                copied_count += 1
-                print(f"  复制 {dir_name} 成功", file=sys.stderr)
-            except Exception as e:
-                print(f"  警告: {dir_name} 部分文件复制失败", file=sys.stderr)
-
-    print(f"配置复制完成 (复制了 {copied_count} 个配置)", file=sys.stderr)
-    return TEMP_CHROME_DIR
-
-
-def start_chrome(headless=True):
-    """启动Chrome调试模式
-
-    Args:
-        headless: True=后台运行，False=显示窗口
-    """
-    if check_port_in_use(CHROME_DEBUG_PORT):
-        print(f"Chrome调试端口 {CHROME_DEBUG_PORT} 已可用", file=sys.stderr)
-        return True
-
-    # 复制配置
-    profile_dir = copy_chrome_profile()
-
-    chrome_path = get_chrome_path()
-    cmd = [
-        chrome_path,
-        f"--remote-debugging-port={CHROME_DEBUG_PORT}",
-        f"--user-data-dir={profile_dir}",
-        "--no-first-run",
-        "--no-default-browser-check",
-        "--disable-background-networking",
-        "--disable-sync",
-        "--disable-translate",
-        "--metrics-recording-only",
-        "--disable-default-apps",
-    ]
-
-    if headless:
-        cmd.append("--headless=new")
-
-    try:
-        # 保存PID到文件
-        os.makedirs(TEMP_CHROME_DIR, exist_ok=True)
-
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == 'win32' else 0
-        )
-
-        # 保存PID
-        with open(CHROME_PID_FILE, 'w') as f:
-            f.write(str(proc.pid))
-
-        for _ in range(30):
-            time.sleep(0.5)
-            if check_port_in_use(CHROME_DEBUG_PORT):
-                mode = "后台模式" if headless else "窗口模式"
-                print(f"Chrome已启动 ({mode})，PID: {proc.pid}", file=sys.stderr)
-                return True
-
-        return False
-    except Exception as e:
-        print(f"启动Chrome失败: {e}", file=sys.stderr)
-        return False
-
-
-def close_chrome():
-    """关闭Chrome调试进程"""
-    pid = None
-
-    # 读取保存的PID
-    if os.path.exists(CHROME_PID_FILE):
-        try:
-            with open(CHROME_PID_FILE, 'r') as f:
-                pid = int(f.read().strip())
-            os.remove(CHROME_PID_FILE)
-        except:
-            pass
-
-    # 如果没有PID文件，尝试从端口获取
-    if not pid and check_port_in_use(CHROME_DEBUG_PORT):
-        try:
-            result = subprocess.run(
-                ['netstat', '-ano'],
-                capture_output=True, text=True, timeout=5
-            )
-            for line in result.stdout.split('\n'):
-                if f':{CHROME_DEBUG_PORT}' in line and 'LISTENING' in line:
-                    parts = line.split()
-                    if len(parts) >= 5:
-                        pid = int(parts[-1])
-                        break
-        except:
-            pass
-
-    if pid:
-        try:
-            subprocess.run(['taskkill', '/F', '/PID', str(pid)],
-                          capture_output=True, timeout=5)
-            print(f"Chrome已关闭 (PID: {pid})", file=sys.stderr)
-        except Exception as e:
-            print(f"关闭Chrome失败: {e}", file=sys.stderr)
-
-    # 等待端口释放
-    time.sleep(1)
-
-    # 最终检查
-    if check_port_in_use(CHROME_DEBUG_PORT):
-        print("Chrome端口仍在使用", file=sys.stderr)
-    else:
-        print("Chrome调试进程已清理", file=sys.stderr)
-
-
-# ============ 模块2: 链接发现 ============
+# ============ 模块1: 链接发现 ============
 
 def get_site_config(url):
     """根据URL获取站点配置"""
@@ -635,56 +474,57 @@ def fetch_static(url, timeout=15):
         return {'success': False, 'error': str(e), 'url': url}
 
 
-def fetch_with_chrome(url, timeout=30, wait_time=2, headless=True):
-    """使用Chrome浏览器抓取网页
+def fetch_with_chrome(url, timeout=30, wait_time=2):
+    """使用Chrome浏览器抓取网页（通过common模块）
 
     Args:
         url: 目标URL
         timeout: 超时时间
         wait_time: 等待页面加载时间
-        headless: True=后台运行，False=显示窗口
     """
-    if not HAS_PLAYWRIGHT:
+    if not HAS_PLAYWRIGHT or not HAS_CHROME_MANAGER:
         return {
             'success': False,
-            'error': 'Playwright未安装。请运行: pip install playwright',
-            'url': url
-        }
-
-    if not start_chrome(headless=headless):
-        return {
-            'success': False,
-            'error': 'Chrome启动失败',
+            'error': 'Playwright或chrome_manager未安装',
             'url': url
         }
 
     browser = None
     try:
-        with sync_playwright() as p:
-            browser = p.chromium.connect_over_cdp(f'http://127.0.0.1:{CHROME_DEBUG_PORT}')
-            context = browser.contexts[0] if browser.contexts else browser.new_context()
-            page = context.pages[0] if context.pages else context.new_page()
+        browser = get_browser()
+        if not browser:
+            return {
+                'success': False,
+                'error': '无法连接Chrome',
+                'url': url
+            }
 
-            page.set_default_timeout(timeout * 1000)
+        page = get_page(browser, timeout=timeout * 1000)
+        if not page:
+            return {
+                'success': False,
+                'error': '无法创建页面',
+                'url': url
+            }
 
-            print(f"正在访问: {url[:60]}...", file=sys.stderr)
-            page.goto(url, wait_until="domcontentloaded", timeout=timeout * 1000)
+        print(f"正在访问: {url[:60]}...", file=sys.stderr)
+        page.goto(url, wait_until="domcontentloaded", timeout=timeout * 1000)
 
-            # 等待页面加载
-            time.sleep(wait_time)
+        # 等待页面加载
+        time.sleep(wait_time)
 
-            # 等待网络空闲
-            try:
-                page.wait_for_load_state("networkidle", timeout=10000)
-            except:
-                pass
+        # 等待网络空闲
+        try:
+            page.wait_for_load_state("networkidle", timeout=10000)
+        except:
+            pass
 
-            html = page.content()
-            final_url = page.url
+        html = page.content()
+        final_url = page.url
 
-            result = parse_html(html, final_url)
-            result['fetch_type'] = 'chrome_cdp'
-            return result
+        result = parse_html(html, final_url)
+        result['fetch_type'] = 'chrome_cdp'
+        return result
 
     except Exception as e:
         return {
@@ -693,14 +533,8 @@ def fetch_with_chrome(url, timeout=30, wait_time=2, headless=True):
             'url': url
         }
     finally:
-        # 通过Playwright关闭浏览器
         if browser:
-            try:
-                browser.close()
-                print("Chrome已关闭", file=sys.stderr)
-            except:
-                # 如果Playwright关闭失败，使用系统方法
-                close_chrome()
+            close_browser(browser, keep_running=True)
 
 
 def check_anti_crawl(html, url):
@@ -814,7 +648,7 @@ def parse_html(html, url):
     }
 
 
-def smart_fetch(url, use_chrome='auto', timeout=15, wait_time=2, headless=True):
+def smart_fetch(url, use_chrome='auto', timeout=15, wait_time=2):
     """智能抓取：自动判断是否需要使用Chrome
 
     Args:
@@ -822,10 +656,9 @@ def smart_fetch(url, use_chrome='auto', timeout=15, wait_time=2, headless=True):
         use_chrome: 'auto'=自动判断, 'always'=总是用Chrome, 'never'=仅静态
         timeout: 超时时间
         wait_time: 等待时间
-        headless: True=后台运行，False=显示窗口
     """
     if use_chrome == 'always':
-        return fetch_with_chrome(url, timeout, wait_time, headless)
+        return fetch_with_chrome(url, timeout, wait_time)
 
     if use_chrome == 'never':
         return fetch_static(url, timeout)
@@ -838,14 +671,14 @@ def smart_fetch(url, use_chrome='auto', timeout=15, wait_time=2, headless=True):
 
         # 如果内容太少或检测到反爬特征，尝试Chrome
         if content_len < 500 or result.get('anti_crawl'):
-            if HAS_PLAYWRIGHT:
-                chrome_result = fetch_with_chrome(url, timeout, wait_time, headless)
+            if HAS_PLAYWRIGHT and HAS_CHROME_MANAGER:
+                chrome_result = fetch_with_chrome(url, timeout, wait_time)
                 if chrome_result['success'] and chrome_result.get('length', 0) > content_len * 1.2:
                     return chrome_result
 
-    elif result.get('anti_crawl') and HAS_PLAYWRIGHT:
+    elif result.get('anti_crawl') and HAS_PLAYWRIGHT and HAS_CHROME_MANAGER:
         # 静态抓取遇到反爬，尝试Chrome
-        chrome_result = fetch_with_chrome(url, timeout, wait_time, headless)
+        chrome_result = fetch_with_chrome(url, timeout, wait_time)
         if chrome_result['success']:
             return chrome_result
 
@@ -1016,89 +849,81 @@ def generate_report(results, discovered_count, skipped_count, save_dir, source_u
 
 # ============ 主流程 ============
 
-def fetch_source_page_html(url, headless=True):
+def fetch_source_page_html(url):
     """获取源页面原始HTML（用于链接发现）
 
     使用Chrome获取完整HTML以支持动态加载的页面内容
     """
     print(f"获取源页面HTML: {url}", file=sys.stderr)
 
-    # 优先使用Chrome获取完整HTML（支持动态页面）
-    if HAS_PLAYWRIGHT:
-        # 先尝试静态获取
+    # 优先尝试静态获取
+    try:
+        headers = {
+            'User-Agent': USER_AGENT,
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        }
+        response = requests.get(url, headers=headers, timeout=15, allow_redirects=True)
+        html = response.text
+
+        # 检查HTML是否包含足够的链接
+        if HAS_BS4:
+            soup = BeautifulSoup(html, 'html.parser')
+            links = soup.find_all('a', href=True)
+            if len(links) >= 10:
+                print(f"静态获取成功，发现 {len(links)} 个链接", file=sys.stderr)
+                return html, response.url
+    except Exception as e:
+        print(f"静态获取失败: {e}", file=sys.stderr)
+
+    # 静态获取失败或链接太少，使用Chrome
+    if not HAS_PLAYWRIGHT or not HAS_CHROME_MANAGER:
+        print("无法使用Chrome，返回静态HTML", file=sys.stderr)
         try:
-            headers = {
-                'User-Agent': USER_AGENT,
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            }
-            response = requests.get(url, headers=headers, timeout=15, allow_redirects=True)
-            html = response.text
+            response = requests.get(url, headers={'User-Agent': USER_AGENT}, timeout=15)
+            return response.text, response.url
+        except:
+            return None, url
 
-            # 检查HTML是否包含足够的链接
-            if HAS_BS4:
-                soup = BeautifulSoup(html, 'html.parser')
-                links = soup.find_all('a', href=True)
-                if len(links) >= 10:
-                    print(f"静态获取成功，发现 {len(links)} 个链接", file=sys.stderr)
-                    return html, response.url
-        except Exception as e:
-            print(f"静态获取失败: {e}", file=sys.stderr)
-
-        # 静态获取失败或链接太少，使用Chrome
-        if not start_chrome(headless=headless):
-            print("Chrome启动失败，使用静态HTML", file=sys.stderr)
+    browser = None
+    try:
+        browser = get_browser()
+        if not browser:
+            print("无法连接Chrome，使用静态HTML", file=sys.stderr)
             try:
                 response = requests.get(url, headers={'User-Agent': USER_AGENT}, timeout=15)
                 return response.text, response.url
             except:
                 return None, url
 
-        browser = None
-        try:
-            with sync_playwright() as p:
-                browser = p.chromium.connect_over_cdp(f'http://127.0.0.1:{CHROME_DEBUG_PORT}')
-                context = browser.contexts[0] if browser.contexts else browser.new_context()
-                page = context.pages[0] if context.pages else context.new_page()
-
-                page.set_default_timeout(30000)
-                page.goto(url, wait_until="domcontentloaded", timeout=30000)
-
-                # 等待页面加载
-                time.sleep(3)
-
-                # 等待网络空闲
-                try:
-                    page.wait_for_load_state("networkidle", timeout=10000)
-                except:
-                    pass
-
-                html = page.content()
-                final_url = page.url
-
-                if HAS_BS4:
-                    soup = BeautifulSoup(html, 'html.parser')
-                    links = soup.find_all('a', href=True)
-                    print(f"Chrome获取成功，发现 {len(links)} 个链接", file=sys.stderr)
-
-                return html, final_url
-
-        except Exception as e:
-            print(f"Chrome获取失败: {e}", file=sys.stderr)
+        page = get_page(browser, url=url, timeout=30000)
+        if not page:
             return None, url
-        finally:
-            if browser:
-                try:
-                    browser.close()
-                except:
-                    close_chrome()
-    else:
-        # 没有Playwright，使用静态获取
+
+        # 等待页面加载
+        time.sleep(3)
+
+        # 等待网络空闲
         try:
-            response = requests.get(url, headers={'User-Agent': USER_AGENT}, timeout=15)
-            return response.text, response.url
-        except Exception as e:
-            print(f"获取失败: {e}", file=sys.stderr)
-            return None, url
+            page.wait_for_load_state("networkidle", timeout=10000)
+        except:
+            pass
+
+        html = page.content()
+        final_url = page.url
+
+        if HAS_BS4:
+            soup = BeautifulSoup(html, 'html.parser')
+            links = soup.find_all('a', href=True)
+            print(f"Chrome获取成功，发现 {len(links)} 个链接", file=sys.stderr)
+
+        return html, final_url
+
+    except Exception as e:
+        print(f"Chrome获取失败: {e}", file=sys.stderr)
+        return None, url
+    finally:
+        if browser:
+            close_browser(browser, keep_running=True)
 
 
 def main():
@@ -1107,21 +932,9 @@ def main():
     parser.add_argument('-n', '--limit', type=int, default=20, help='最大抓取数量 (默认20)')
     parser.add_argument('-o', '--output', help='保存目录 (默认 ~/Downloads/web_article_fetcher)')
     parser.add_argument('--full', action='store_true', help='全量抓取（忽略增量状态）')
-    parser.add_argument('--show-browser', action='store_true', help='显示浏览器窗口')
-    parser.add_argument('--close', action='store_true', help='关闭Chrome进程')
     parser.add_argument('--json', action='store_true', help='JSON输出')
 
     args = parser.parse_args()
-
-    # 关闭Chrome
-    if args.close:
-        close_chrome()
-        if sys.platform == 'win32':
-            subprocess.run(['taskkill', '/F', '/IM', 'chrome.exe', '/FI',
-                          f'WINDOWTITLE eq *{CHROME_DEBUG_PORT}*'],
-                          capture_output=True)
-        print("Chrome调试进程已清理", file=sys.stderr)
-        return
 
     # 检查URL
     if not args.url:
@@ -1170,7 +983,7 @@ def main():
     state = load_state(state_file)
 
     # 1. 获取源页面HTML
-    html, final_url = fetch_source_page_html(source_url, headless=not args.show_browser)
+    html, final_url = fetch_source_page_html(source_url)
     if not html:
         print("无法获取源页面内容", file=sys.stderr)
         if args.json:
@@ -1219,7 +1032,7 @@ def main():
         if i > 0:
             time.sleep(1.0)
 
-        result = smart_fetch(item['url'], use_chrome='auto', headless=not args.show_browser)
+        result = smart_fetch(item['url'], use_chrome='auto')
 
         if result.get('success'):
             # 5. 保存MD文件

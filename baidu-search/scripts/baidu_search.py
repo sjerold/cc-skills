@@ -157,20 +157,19 @@ def calculate_quality_score(result):
     return base_score
 
 
-def search(query, limit=50, headless=True):
+def search(query, limit=50):
     """执行百度搜索
 
     Args:
         query: 搜索关键词
         limit: 结果数量
-        headless: True=后台运行，False=显示窗口（用于处理验证码）
     """
     if not HAS_PLAYWRIGHT:
         print("请安装: pip install playwright", file=sys.stderr)
         return []
 
     # 使用common模块连接Chrome
-    browser = get_browser(headless=headless)
+    browser = get_browser()
     if not browser:
         print("无法连接Chrome", file=sys.stderr)
         return []
@@ -186,9 +185,6 @@ def search(query, limit=50, headless=True):
 
         # 检查验证码
         if check_captcha(page):
-            if headless:
-                print("后台模式无法处理验证码，请使用 --show-browser 参数", file=sys.stderr)
-                return []
             print("请在浏览器窗口中完成验证...", file=sys.stderr)
             # 等待用户处理验证码
             for _ in range(60):
@@ -387,13 +383,12 @@ def generate_summary(query, results, md_contents, save_dir, session_id):
 def main():
     parser = argparse.ArgumentParser(description='百度搜索增强版')
     parser.add_argument('query', nargs='*', help='搜索词')
-    parser.add_argument('-n', '--limit', type=int, default=150, help='搜索结果数量 (默认150)')
+    parser.add_argument('-n', '--limit', type=int, default=20, help='搜索结果数量 (默认20)')
     parser.add_argument('-t', '--top-percent', type=float, default=35, help='按分数筛选前N%%的结果进行抓取 (默认35%%)')
     parser.add_argument('--min-score', type=float, default=1.0, help='最低分数阈值 (默认1.0)')
     parser.add_argument('-o', '--output', help='保存目录 (默认 ~/Downloads/baidu_search/<session_id>)')
     parser.add_argument('--session-id', help='指定会话ID')
     parser.add_argument('--json', action='store_true', help='JSON输出')
-    parser.add_argument('--show-browser', action='store_true', help='显示浏览器窗口（用于处理验证码）')
     parser.add_argument('--no-summarize', action='store_true', help='不生成总结报告')
 
     args = parser.parse_args()
@@ -412,7 +407,7 @@ def main():
     print(f"保存目录: {session_dir}", file=sys.stderr)
 
     # 搜索
-    results = search(query, args.limit, headless=not args.show_browser)
+    results = search(query, args.limit)
     print(f"找到 {len(results)} 条结果", file=sys.stderr)
 
     if not results:
@@ -429,7 +424,7 @@ def main():
 
     # 抓取网页（使用common模块）
     urls = [r['url'] for r in results[:fetch_count]]
-    fetched = fetch_urls(urls, save_dir=session_dir, headless=not args.show_browser)
+    fetched = fetch_urls(urls, save_dir=session_dir)
     success_count = sum(1 for r in fetched if r.get('success'))
     print(f"抓取成功: {success_count}/{len(urls)}", file=sys.stderr)
 

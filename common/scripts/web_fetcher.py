@@ -143,12 +143,11 @@ def check_anti_crawl(html, url=''):
     return False
 
 
-def fetch_url(url, headless=True, timeout=30000, wait_time=2):
+def fetch_url(url, timeout=30000, wait_time=2):
     """抓取单个URL的内容
 
     Args:
         url: 要抓取的URL
-        headless: 是否后台运行Chrome
         timeout: 页面加载超时（毫秒）
         wait_time: 等待JS渲染的时间（秒）
 
@@ -169,7 +168,7 @@ def fetch_url(url, headless=True, timeout=30000, wait_time=2):
 
     if HAS_PLAYWRIGHT:
         # 使用Playwright抓取（推荐）
-        browser = get_browser(headless=headless)
+        browser = get_browser()
         if not browser:
             result['error'] = '无法连接Chrome'
             return result
@@ -240,13 +239,12 @@ def fetch_url(url, headless=True, timeout=30000, wait_time=2):
     return result
 
 
-def fetch_urls(urls, save_dir=None, headless=True, delay=1.0, timeout=30000):
+def fetch_urls(urls, save_dir=None, delay=1.0, timeout=30000):
     """批量抓取URL
 
     Args:
         urls: URL列表
         save_dir: 保存目录（可选，保存为Markdown文件）
-        headless: 是否后台运行
         delay: 请求间隔（秒）
         timeout: 超时时间
 
@@ -258,7 +256,7 @@ def fetch_urls(urls, save_dir=None, headless=True, delay=1.0, timeout=30000):
     # 连接浏览器（一次性连接，批量抓取）
     browser = None
     if HAS_PLAYWRIGHT:
-        browser = get_browser(headless=headless)
+        browser = get_browser()
 
     try:
         for i, url in enumerate(urls):
@@ -393,18 +391,17 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='网页抓取工具')
     parser.add_argument('url', nargs='*', help='要抓取的URL')
     parser.add_argument('-o', '--output', help='保存目录')
-    parser.add_argument('--show-browser', action='store_true', help='显示浏览器窗口')
     parser.add_argument('--test', action='store_true', help='测试抓取百度')
 
     args = parser.parse_args()
 
     if args.test:
-        result = fetch_url('https://www.baidu.com', headless=not args.show_browser)
+        result = fetch_url('https://www.baidu.com')
         print(json.dumps(result, ensure_ascii=False, indent=2))
 
     elif args.url:
         urls = args.url
-        results = fetch_urls(urls, save_dir=args.output, headless=not args.show_browser)
+        results = fetch_urls(urls, save_dir=args.output)
         print(json.dumps(results, ensure_ascii=False, indent=2))
 
     else:

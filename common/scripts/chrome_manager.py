@@ -171,12 +171,13 @@ def start_debug_chrome(headless=False, wait_timeout=30):
 
     # 决定使用哪个配置目录
     if is_user_chrome_running():
-        # 用户Chrome正在运行，配置被锁定，使用临时目录
-        print("用户Chrome正在运行，复制配置到临时目录...", file=sys.stderr)
+        # 用户Chrome正在运行，配置被锁定，复制配置到临时目录
+        print("用户Chrome正在运行，复制配置以共享session...", file=sys.stderr)
         user_data_dir = copy_chrome_profile()
     else:
         # 用户Chrome未运行，直接使用原始配置
         user_data_dir = CHROME_USER_DATA_DIR
+        print(f"使用用户配置: {user_data_dir}", file=sys.stderr)
 
     cmd = [
         chrome_path,
@@ -184,15 +185,7 @@ def start_debug_chrome(headless=False, wait_timeout=30):
         f"--user-data-dir={user_data_dir}",
         "--no-first-run",
         "--no-default-browser-check",
-        "--disable-background-networking",
-        "--disable-sync",
-        "--disable-translate",
-        "--metrics-recording-only",
-        "--disable-default-apps",
     ]
-
-    if headless:
-        cmd.append("--headless=new")
 
     try:
         # 启动Chrome
@@ -211,8 +204,7 @@ def start_debug_chrome(headless=False, wait_timeout=30):
         for _ in range(wait_timeout * 2):
             time.sleep(0.5)
             if is_chrome_debug_running():
-                mode = "后台模式" if headless else "窗口模式"
-                print(f"Chrome已启动 ({mode})，PID: {proc.pid}", file=sys.stderr)
+                print(f"Chrome已启动，PID: {proc.pid}", file=sys.stderr)
                 return True
 
         print("Chrome启动超时", file=sys.stderr)
