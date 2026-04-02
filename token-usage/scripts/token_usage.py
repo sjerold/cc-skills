@@ -203,8 +203,9 @@ def print_report(data: Dict[str, Dict], period: str, filter_current: bool = True
     for key in sorted_keys:
         d = data[key]
         total = d['input'] + d['output']
-        if period == 'all':
-            print(f"  |  {key:<20}                                    |")
+        # Show date key for all periods when multiple entries
+        if len(sorted_keys) > 1 or period == 'all':
+            print(f"  |  Date: {key:<49}|")
         print(f"  |  API Calls:      {format_number(d['calls']):>15}                      |")
         print(f"  |  Input Tokens:   {format_number(d['input']):>15}                      |")
         print(f"  |  Output Tokens:  {format_number(d['output']):>15}                      |")
@@ -244,6 +245,12 @@ def main():
         action='store_true',
         help='Show all historical statistics'
     )
+    parser.add_argument(
+        '--days',
+        type=int,
+        default=None,
+        help='Show statistics for the last N days (e.g., --days 14 for last 2 weeks)'
+    )
 
     args = parser.parse_args()
 
@@ -254,6 +261,8 @@ def main():
         period = 'week'
     elif args.month:
         period = 'month'
+    elif args.days:
+        period = 'day'
     else:
         period = 'day'
 
@@ -275,11 +284,18 @@ def main():
         print("\n  No usage data found in session logs.\n")
         return
 
+    # Filter by date range if --days specified
+    if args.days:
+        from datetime import timezone
+        now = datetime.now(timezone.utc)
+        start_date = now - timedelta(days=args.days)
+        all_records = [r for r in all_records if r['timestamp'] >= start_date]
+
     # Aggregate data
     aggregated = aggregate_by_period(all_records, period)
 
     # Print report
-    filter_current = period != 'all'
+    filter_current = period != 'all' and args.days is None
     print_report(aggregated, period, filter_current)
 
 
