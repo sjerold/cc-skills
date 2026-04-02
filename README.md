@@ -188,4 +188,4 @@ pip install -r gongwen-writer/requirements-minimal.txt
 
 ## License
 
-MIT
+GPL-3.0

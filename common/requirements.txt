@@ -1,0 +1,10 @@
+# 公共依赖
+
+# 浏览器自动化
+playwright>=1.40.0
+
+# HTML解析
+beautifulsoup4>=4.12.0
+
+# 网络请求（备用）
+requests>=2.28.0

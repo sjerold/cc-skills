@@ -8,48 +8,40 @@
   },
   "plugins": [
     {
-      "name": "token-usage",
-      "description": "Token用量统计插件，统计Claude Code的API调用次数、输入/输出Token使用情况，支持按天/周/月查看。",
-      "category": "productivity",
-      "source": {
-        "source": "git-subdir",
-        "url": "https://github.com/sjerold/cc-skills.git",
-        "path": "token-usage"
-      },
-      "homepage": "https://github.com/sjerold/cc-skills/tree/main/token-usage"
-    },
-    {
       "name": "baidu-search",
-      "description": "百度搜索增强版：大规模搜索、智能分数筛选、内容抓取、自动总结。支持Session管理、Playwright动态渲染、Markdown保存。",
-      "category": "search",
-      "source": {
-        "source": "git-subdir",
-        "url": "https://github.com/sjerold/cc-skills.git",
-        "path": "baidu-search"
-      },
-      "homepage": "https://github.com/sjerold/cc-skills/tree/main/baidu-search"
+      "source": "./baidu-search",
+      "description": "百度搜索增强版：大规模搜索、智能分数筛选、内容抓取、自动总结。",
+      "skills": ["./skills/baidu-search"]
     },
     {
       "name": "file-searcher",
-      "description": "文件内容搜索插件，支持在 Word (.docx)、PDF、Markdown、文本等文件中搜索关键词。",
-      "category": "productivity",
-      "source": {
-        "source": "git-subdir",
-        "url": "https://github.com/sjerold/cc-skills.git",
-        "path": "file-searcher"
-      },
-      "homepage": "https://github.com/sjerold/cc-skills/tree/main/file-searcher"
+      "source": "./file-searcher",
+      "description": "文件内容搜索插件，支持 Word、PDF、Markdown 等格式。",
+      "skills": ["./skills/file-searcher"]
     },
     {
       "name": "gongwen-writer",
-      "description": "公文写作插件，支持创建符合党政机关公文格式规范的 Word 文档，包括通知、报告、请示等公文类型。",
-      "category": "productivity",
-      "source": {
-        "source": "git-subdir",
-        "url": "https://github.com/sjerold/cc-skills.git",
-        "path": "gongwen-writer"
-      },
-      "homepage": "https://github.com/sjerold/cc-skills/tree/main/gongwen-writer"
+      "source": "./gongwen-writer",
+      "description": "公文写作插件，支持党政机关公文格式。",
+      "skills": ["./skills/gongwen-writer"]
+    },
+    {
+      "name": "tang-dynasty",
+      "source": "./tang-dynasty",
+      "description": "大唐三公六部多Agent协作系统。通过 /t 命令触发。",
+      "skills": ["./skills/t"]
+    },
+    {
+      "name": "web-article-fetcher",
+      "source": "./web-article-fetcher",
+      "description": "网页文章抓取插件，支持增量更新。",
+      "skills": ["./skills/web-article-fetcher"]
+    },
+    {
+      "name": "token-usage",
+      "source": "./token-usage",
+      "description": "Token用量统计插件。",
+      "skills": ["./skills/token-usage"]
     }
   ]
 }

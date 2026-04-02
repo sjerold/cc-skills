@@ -1,0 +1,17 @@
+{
+  "name": "common",
+  "description": "公共模块：统一Chrome浏览器管理、网页抓取等功能。供其他插件引用。",
+  "version": "1.0.0",
+  "author": {
+    "name": "sjerold",
+    "url": "https://github.com/sjerold"
+  },
+  "license": "MIT",
+  "keywords": [
+    "common",
+    "chrome",
+    "playwright",
+    "web-fetcher",
+    "shared"
+  ]
+}

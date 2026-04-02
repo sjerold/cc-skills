@@ -1,0 +1,15 @@
+{
+  "name": "tang-dynasty",
+  "owner": {
+    "name": "sjerold",
+    "url": "https://github.com/sjerold"
+  },
+  "plugins": [
+    {
+      "name": "tang-dynasty",
+      "source": "./",
+      "description": "大唐三公六部多Agent协作系统。通过 /t 命令触发，支持多模态输入输出、并行执行、进度监控。",
+      "skills": ["./skills/t"]
+    }
+  ]
+}

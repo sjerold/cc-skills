@@ -1,0 +1,20 @@
+{
+  "name": "tang-dynasty",
+  "description": "大唐三公六部多Agent协作系统。通过 /t 命令触发，支持多模态输入输出、并行执行、进度监控。采用贞观年间历史人物命名：房玄龄（规划）、长孙无忌（调度）、魏征（审核）、六部执行。",
+  "version": "1.0.0",
+  "author": {
+    "name": "sjerold",
+    "url": "https://github.com/sjerold"
+  },
+  "repository": "https://github.com/sjerold/tang-dynasty.git",
+  "license": "MIT",
+  "skills": ["./skills/t"],
+  "keywords": [
+    "multi-agent",
+    "tang-dynasty",
+    "三公六部",
+    "多Agent协作",
+    "并行执行",
+    "任务调度"
+  ]
+}

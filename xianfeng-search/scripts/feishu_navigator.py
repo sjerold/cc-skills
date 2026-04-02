@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-飞书导航模块 - 管理浏览器连接和登录检测
+飞书导航模块 - 使用common模块统一Chrome管理
+
+改动：
+- 使用common/chrome_manager连接现有Chrome
+- 在现有浏览器开新tab
+- 复用用户的登录状态
 """
 
 import sys
@@ -10,13 +15,31 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# 添加common模块路径
+# 路径: xianfeng-search/scripts/feishu_navigator.py -> plugins/common/scripts
+_PLUGINS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+COMMON_PATH = os.path.join(os.path.dirname(_PLUGINS_DIR), 'common', 'scripts')
+sys.path.insert(0, COMMON_PATH)
+
 from config import LOGIN_WAIT_TIMEOUT, PAGE_LOAD_TIMEOUT
-from chrome_helper import (
-    CHROME_DEBUG_PORT,
-    TEMP_CHROME_DIR,
-    start_chrome,
-    close_chrome,
-)
+
+# 导入common模块
+try:
+    from chrome_manager import (
+        CHROME_DEBUG_PORT,
+        get_browser,
+        get_page,
+        close_browser,
+        is_chrome_debug_running,
+        start_debug_chrome,
+        get_existing_page
+    )
+    HAS_CHROME_MANAGER = True
+except ImportError as e:
+    print(f"无法导入chrome_manager: {e}", file=sys.stderr)
+    HAS_CHROME_MANAGER = False
+    # 备用：使用本地chrome_helper
+    from chrome_helper import CHROME_DEBUG_PORT, start_chrome, close_chrome
 
 # 尝试导入Playwright
 HAS_PLAYWRIGHT = False
@@ -60,36 +83,45 @@ class FeishuNavigator:
             raise RuntimeError("Playwright未安装。请运行: pip install playwright")
 
         try:
-            if not start_chrome(headless=self.headless):
-                print("Chrome启动失败", file=sys.stderr)
-                return False
+            # 使用common模块获取浏览器
+            if HAS_CHROME_MANAGER:
+                self.browser = get_browser(headless=self.headless)
+                if not self.browser:
+                    print("无法连接Chrome", file=sys.stderr)
+                    return False
+            else:
+                # 备用逻辑
+                if not start_chrome(headless=self.headless):
+                    print("Chrome启动失败", file=sys.stderr)
+                    return False
 
-            self.playwright = sync_playwright().start()
-            self.browser = self.playwright.chromium.connect_over_cdp(
-                f'http://127.0.0.1:{CHROME_DEBUG_PORT}'
-            )
+                self.playwright = sync_playwright().start()
+                self.browser = self.playwright.chromium.connect_over_cdp(
+                    f'http://127.0.0.1:{CHROME_DEBUG_PORT}'
+                )
 
             self.context = self.browser.contexts[0] if self.browser.contexts else self.browser.new_context()
 
-            # 使用现有页面或创建新页面
-            if self.context.pages:
-                self.page = self.context.pages[0]
-                # 先关闭其他页面避免干扰
-                for other_page in self.context.pages[1:]:
-                    try:
-                        other_page.close()
-                    except:
-                        pass
+            # 使用现有页面或创建新页面（在现有浏览器开新tab）
+            if HAS_CHROME_MANAGER:
+                self.page = get_page(self.browser, timeout=PAGE_LOAD_TIMEOUT * 1000)
             else:
-                self.page = self.context.new_page()
-
-            self.page.set_default_timeout(PAGE_LOAD_TIMEOUT * 1000)
+                if self.context.pages:
+                    self.page = self.context.pages[0]
+                    # 关闭其他页面避免干扰
+                    for other_page in self.context.pages[1:]:
+                        try:
+                            other_page.close()
+                        except:
+                            pass
+                else:
+                    self.page = self.context.new_page()
+                    self.page.set_default_timeout(PAGE_LOAD_TIMEOUT * 1000)
 
             # 导航到目标URL
             navigate_url = target_url if target_url else self.domain
             print(f"正在打开: {navigate_url}", file=sys.stderr)
 
-            # 执行导航
             try:
                 self.page.goto(navigate_url, timeout=PAGE_LOAD_TIMEOUT * 1000, wait_until="domcontentloaded")
             except Exception as e:
@@ -97,7 +129,6 @@ class FeishuNavigator:
 
             time.sleep(3)
 
-            # 确认导航结果
             final_url = self.page.url
             print(f"导航后URL: {final_url}", file=sys.stderr)
 
@@ -192,20 +223,23 @@ class FeishuNavigator:
 
     def close(self):
         """断开Chrome连接（保持Chrome运行以复用登录session）"""
-        try:
-            if self.browser:
-                self.browser = None
-        except:
-            pass
+        if HAS_CHROME_MANAGER:
+            close_browser(self.browser, keep_running=True)
+        else:
+            try:
+                if self.browser:
+                    self.browser = None
+            except:
+                pass
 
-        try:
-            if self.playwright:
-                self.playwright.stop()
-        except:
-            pass
+            try:
+                if self.playwright:
+                    self.playwright.stop()
+            except:
+                pass
 
-        print("已断开Chrome连接（Chrome保持运行，下次可复用登录状态）", file=sys.stderr)
+            print("已断开Chrome连接（Chrome保持运行，下次可复用登录状态）", file=sys.stderr)
 
 
 if __name__ == '__main__':
-    print("飞书导航模块 - 请通过 xianfeng_search.py 调用")
+    print("飞书导航模块 - 使用common模块统一管理")
