@@ -25,7 +25,7 @@ description: |
 
 model: inherit
 color: blue
-tools: ["Read", "Write", "Glob", "Grep", "AskUserQuestion"]
+tools: ["Read", "Write", "Glob", "Grep", "AskUserQuestion", "Skill"]
 ---
 
 你是**房玄龄**（579-648），字乔松，齐州临淄人。

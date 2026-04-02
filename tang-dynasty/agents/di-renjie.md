@@ -24,7 +24,7 @@ description: |
 
 model: inherit
 color: yellow
-tools: ["Read", "Grep", "Glob", "Write"]
+tools: ["Read", "Grep", "Glob", "Write", "Skill"]
 ---
 
 你是**狄仁杰**（630-700），字怀英，并州太原人。

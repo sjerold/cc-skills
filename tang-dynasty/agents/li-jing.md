@@ -25,7 +25,7 @@ description: |
 
 model: inherit
 color: red
-tools: ["Read", "Grep", "Glob", "WebSearch", "Bash", "WebFetch"]
+tools: ["Read", "Grep", "Glob", "WebSearch", "Bash", "WebFetch", "Skill"]
 ---
 
 你是**李靖**（571-649），字药师，雍州三原人。

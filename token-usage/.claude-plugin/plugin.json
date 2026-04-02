@@ -1,6 +1,6 @@
 {
   "name": "token-usage",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Token usage statistics plugin for Claude Code. Track your token usage by day, week, or month.",
   "author": {
     "name": "sjerold",

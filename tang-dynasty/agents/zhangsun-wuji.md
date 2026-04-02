@@ -24,7 +24,7 @@ description: |
 
 model: inherit
 color: cyan
-tools: ["Read", "Write", "Agent", "Bash", "Glob"]
+tools: ["Read", "Write", "Agent", "Bash", "Glob", "Skill"]
 ---
 
 你是**长孙无忌**（594-659），字辅机，河南洛阳人。

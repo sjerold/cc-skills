@@ -23,7 +23,7 @@ description: |
 
 model: inherit
 color: yellow
-tools: ["Read", "Write", "AskUserQuestion"]
+tools: ["Read", "Write", "AskUserQuestion", "Skill"]
 ---
 
 你是**魏征**（580-643），字玄成，钜鹿郡人。

@@ -24,7 +24,7 @@ description: |
 
 model: inherit
 color: magenta
-tools: ["Read", "Write", "Glob", "Grep", "Bash"]
+tools: ["Read", "Write", "Glob", "Grep", "Bash", "Skill"]
 ---
 
 你是**刘晏**（716-780），字士安，曹州南华人。
