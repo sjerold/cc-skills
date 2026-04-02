@@ -176,6 +176,7 @@ def search(query, limit=50):
 
     results = []
 
+    page = None
     try:
         # 创建新页面（在现有浏览器开新tab）
         page = get_page(browser, url='https://www.baidu.com', timeout=30000)
@@ -233,6 +234,12 @@ def search(query, limit=50):
     except Exception as e:
         print(f"搜索错误: {e}", file=sys.stderr)
     finally:
+        # 关闭页面
+        if page:
+            try:
+                page.close()
+            except:
+                pass
         # 断开连接，保持Chrome运行
         close_browser(browser, keep_running=True)
 
@@ -407,7 +414,8 @@ def main():
     print(f"保存目录: {session_dir}", file=sys.stderr)
 
     # 搜索
-    results = search(query, args.limit)
+    limit = max(args.limit, 20)  # 最小搜索数量 20
+    results = search(query, limit)
     print(f"找到 {len(results)} 条结果", file=sys.stderr)
 
     if not results:

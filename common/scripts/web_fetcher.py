@@ -21,6 +21,7 @@ import hashlib
 import json
 from datetime import datetime
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # 导入chrome_manager
 try:
@@ -143,6 +144,59 @@ def check_anti_crawl(html, url=''):
     return False
 
 
+def _fetch_single_static(url):
+    """静态抓取单个URL（用于线程池）"""
+    result = {
+        'success': False,
+        'url': url,
+        'original_url': url,
+        'title': '',
+        'content': '',
+        'length': 0,
+        'error': None,
+        'anti_crawl': False,
+        'fetch_type': ''
+    }
+
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0 Safari/537.36'}
+        resp = requests.get(url, headers=headers, timeout=15, allow_redirects=True)
+
+        # 修复编码问题
+        if resp.encoding is None or resp.encoding.lower() == 'iso-8859-1':
+            content_type = resp.headers.get('content-type', '')
+            charset_match = re.search(r'charset=([^\s;]+)', content_type, re.IGNORECASE)
+            if charset_match:
+                resp.encoding = charset_match.group(1)
+            else:
+                content_bytes = resp.content
+                meta_match = re.search(r'<meta[^>]+charset=["\']?([^"\'>\s]+)',
+                                      content_bytes[:1000].decode('utf-8', errors='ignore'),
+                                      re.IGNORECASE)
+                if meta_match:
+                    resp.encoding = meta_match.group(1)
+                else:
+                    resp.encoding = 'utf-8'
+
+        try:
+            html = resp.content.decode(resp.encoding or 'utf-8', errors='replace')
+        except:
+            html = resp.content.decode('utf-8', errors='replace')
+
+        content_data = extract_content(html, resp.url)
+        result['success'] = True
+        result['title'] = content_data['title']
+        result['content'] = content_data['content']
+        result['length'] = content_data['length']
+        result['url'] = resp.url
+        result['fetch_type'] = 'static'
+
+    except Exception as e:
+        result['error'] = str(e)
+
+    return result
+
+
 def fetch_url(url, timeout=30000, wait_time=2):
     """抓取单个URL的内容
 
@@ -173,11 +227,11 @@ def fetch_url(url, timeout=30000, wait_time=2):
             result['error'] = '无法连接Chrome'
             return result
 
+        page = None
         try:
             page = get_page(browser, timeout=timeout)
             if not page:
                 result['error'] = '无法创建页面'
-                close_browser(browser, keep_running=True)
                 return result
 
             print(f"抓取: {url[:60]}...", file=sys.stderr)
@@ -211,6 +265,12 @@ def fetch_url(url, timeout=30000, wait_time=2):
             result['error'] = str(e)
 
         finally:
+            # 关闭页面
+            if page:
+                try:
+                    page.close()
+                except:
+                    pass
             close_browser(browser, keep_running=True)
 
     elif HAS_REQUESTS:
@@ -265,7 +325,7 @@ def fetch_url(url, timeout=30000, wait_time=2):
     return result
 
 
-def fetch_urls(urls, save_dir=None, delay=1.0, timeout=30000):
+def fetch_urls(urls, save_dir=None, delay=1.0, timeout=30000, workers=3):
     """批量抓取URL
 
     Args:
@@ -273,6 +333,7 @@ def fetch_urls(urls, save_dir=None, delay=1.0, timeout=30000):
         save_dir: 保存目录（可选，保存为Markdown文件）
         delay: 请求间隔（秒）
         timeout: 超时时间
+        workers: 静态抓取线程数（默认3）
 
     Returns:
         list: 抓取结果列表
@@ -283,6 +344,22 @@ def fetch_urls(urls, save_dir=None, delay=1.0, timeout=30000):
     browser = None
     if HAS_PLAYWRIGHT:
         browser = get_browser()
+
+    # 使用线程池并行静态抓取
+    if browser is None and HAS_REQUESTS and workers > 1:
+        print(f"使用 {workers} 线程并行抓取 {len(urls)} 个URL", file=sys.stderr)
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            future_to_url = {executor.submit(_fetch_single_static, url): url for url in urls}
+            for future in as_completed(future_to_url):
+                result = future.result()
+                if result.get('success') and save_dir:
+                    save_result_to_markdown(result, save_dir)
+                results.append(result)
+        # 按原始顺序排序
+        url_to_result = {r['original_url']: r for r in results}
+        results = [url_to_result.get(url, {'success': False, 'url': url, 'error': '未抓取'}) for url in urls]
+        close_browser(None, keep_running=True)
+        return results
 
     try:
         for i, url in enumerate(urls):
@@ -305,6 +382,7 @@ def fetch_urls(urls, save_dir=None, delay=1.0, timeout=30000):
 
             if browser:
                 # Playwright抓取
+                page = None
                 try:
                     page = get_page(browser, timeout=timeout)
                     if not page:
@@ -356,6 +434,13 @@ def fetch_urls(urls, save_dir=None, delay=1.0, timeout=30000):
 
                 except Exception as e:
                     result['error'] = str(e)
+                finally:
+                    # 确保页面关闭
+                    if page:
+                        try:
+                            page.close()
+                        except:
+                            pass
 
             elif HAS_REQUESTS:
                 # 静态抓取
