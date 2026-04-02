@@ -71,6 +71,28 @@
 /gongwen-writer 写一份关于xxx的通知
 ```
 
+### 衔风搜索 (xianfeng-search) v1.1.0
+
+飞书云文档智能搜索工具，支持私有化部署版本。
+
+**核心功能**：
+- 递归目录扫描，生成JSON文档树
+- 智能缓存，增量更新
+- 文档内容抓取为Markdown
+- 保持目录结构
+- 支持表格文档抓取
+
+```bash
+# 扫描目录
+衔风搜索 扫描 https://your-feishu.com/drive/folder/xxx
+
+# 缓存文档（扫描+抓取）
+衔风搜索 缓存 https://your-feishu.com/drive/folder/xxx
+
+# 搜索文档
+衔风搜索 搜索 关键词
+```
+
 ## 安装方法
 
 ### 步骤 1：添加 Marketplace
@@ -93,7 +115,9 @@
 /gongwen-setup
 ```
 
-注意：web-article-fetcher 使用与 baidu-search 相同的依赖环境，无需额外安装。
+注意：
+- web-article-fetcher 使用与 baidu-search 相同的依赖环境，无需额外安装
+- xianfeng-search 需要额外安装 Playwright 浏览器：`playwright install chromium`
 
 ## 依赖环境
 
@@ -121,6 +145,16 @@ pip install -r gongwen-writer/requirements-minimal.txt
 找到已安装的插件，点击更新。
 
 ## 更新日志
+
+### xianfeng-search v1.1.0 (2026-04-02)
+- 首次发布
+- 递归目录扫描，生成JSON文档树
+- 智能缓存机制，增量更新
+- 文档内容抓取为Markdown
+- 保持目录结构
+- 支持表格文档
+- 修复 folder_path 传播问题
+- 修复文档重定向导致的 ERR_ABORTED 错误
 
 ### web-article-fetcher v1.0.0 (2026-03-31)
 - 首次发布
