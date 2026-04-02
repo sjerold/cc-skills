@@ -55,6 +55,11 @@ playwright install chromium
 
 ## 变更日志
 
+### 1.3.0 (2026-04-02)
+- **最小化窗口启动**：Chrome 默认最小化启动，不抢焦点，不影响其他工作
+- 添加 `--start-minimized` 参数
+- 使用 Windows STARTUPINFO 控制窗口显示
+
 ### 1.2.0 (2026-04-02)
 - **默认后台运行**：Chrome 默认 headless 模式启动（无窗口）
 - 修复 get_browser() 的 headless 默认参数

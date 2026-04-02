@@ -157,11 +157,11 @@ def copy_chrome_profile():
     return TEMP_CHROME_DIR
 
 
-def start_debug_chrome(headless=True, wait_timeout=30):
+def start_debug_chrome(headless=False, wait_timeout=30):
     """启动调试模式的Chrome
 
     Args:
-        headless: 是否后台运行（无窗口），默认True
+        headless: 是否后台运行（无窗口），默认False（因为很多网站检测headless）
         wait_timeout: 等待启动的超时时间（秒）
 
     Returns:
@@ -191,17 +191,34 @@ def start_debug_chrome(headless=True, wait_timeout=30):
         "--no-default-browser-check",
     ]
 
-    # headless 模式（后台运行）
+    # headless 模式（后台运行，无窗口）
     if headless:
         cmd.append("--headless=new")
+    else:
+        # 非 headless 模式：窗口在屏幕右下角，只保留 title bar
+        # 方便调试时拖出来，不干扰工作
+        cmd.extend([
+            "--window-position=-8,-8",      # 右下角（考虑任务栏）
+            "--window-size=300,50",         # 小窗口，只显示部分标题
+        ])
 
     try:
+        # Windows 下设置窗口不抢焦点
+        startupinfo = None
+        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == 'win32' else 0
+
+        if sys.platform == 'win32':
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = 6  # SW_MINIMIZE
+
         # 启动Chrome
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == 'win32' else 0
+            startupinfo=startupinfo,
+            creationflags=creationflags
         )
 
         # 保存PID
@@ -223,7 +240,7 @@ def start_debug_chrome(headless=True, wait_timeout=30):
         return False
 
 
-def get_browser(headless=True, auto_start=True):
+def get_browser(headless=False, auto_start=True):
     """获取浏览器实例
 
     逻辑：
@@ -232,7 +249,7 @@ def get_browser(headless=True, auto_start=True):
     3. 没有 → 启动新的调试Chrome（如果auto_start=True）
 
     Args:
-        headless: 启动时是否后台运行（无窗口），默认True
+        headless: 启动时是否后台运行（无窗口），默认False（使用最小化窗口）
         auto_start: 如果没有运行的Chrome，是否自动启动
 
     Returns:
