@@ -3,19 +3,23 @@
 """分析有文档的文件夹页面结构"""
 
 import sys
+import os
 import json
 import time
 
-sys.path.insert(0, r'C:\Users\admin\.claude\plugins\xianfeng-search\scripts')
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from playwright.sync_api import sync_playwright
+
+# 使用环境变量或默认测试URL
+TEST_URL = os.environ.get('XIANFENG_TEST_URL', 'https://example.feishu.cn/drive/folder/test')
 
 with sync_playwright() as p:
     browser = p.chromium.connect_over_cdp('http://127.0.0.1:9225')
     page = browser.contexts[0].pages[0]
 
     # 导航到有文档的文件夹
-    page.goto('https://fsdvaugca1.phenixfin.com/drive/folder/OG7NfQCcSloZIfdhfRQvf8elm9f')
+    page.goto(TEST_URL)
     time.sleep(5)  # 等待加载
 
     # 获取文件列表区域的HTML

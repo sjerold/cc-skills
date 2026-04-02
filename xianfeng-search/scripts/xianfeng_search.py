@@ -237,8 +237,13 @@ def _recursive_scan(url: str, options: dict, depth: int = 0):
     print(f"{indent}发现 {len(children)} 个子文件夹，继续扫描...", file=sys.stderr)
 
     # 递归扫描子文件夹
+    # 使用当前扫描URL的域名，避免硬编码
+    from config import parse_feishu_url
+    parsed = parse_feishu_url(url)
+    domain = parsed.get('domain', '')
+
     for child_id, child_info in children.items():
-        child_url = f"https://fsdvaugca1.phenixfin.com/drive/folder/{child_id}"
+        child_url = f"{domain}/drive/folder/{child_id}"
         _recursive_scan(child_url, options, depth + 1)
 
 

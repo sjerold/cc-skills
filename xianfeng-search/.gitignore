@@ -3,7 +3,7 @@ __pycache__/
 *.py[cod]
 *.pyo
 
-# Cache files
+# Cache files (may contain internal URLs)
 cache/*.json
 !cache/.gitkeep
 
@@ -15,3 +15,9 @@ cache/*.json
 # OS
 .DS_Store
 Thumbs.db
+
+# Security - never commit these
+*.env
+.env.*
+secrets.json
+credentials.json
