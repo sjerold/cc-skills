@@ -222,7 +222,33 @@ def fetch_url(url, timeout=30000, wait_time=2):
             }
             resp = requests.get(url, headers=headers, timeout=15, allow_redirects=True)
 
-            content_data = extract_content(resp.text, resp.url)
+            # 修复编码问题：显式检测并设置正确编码
+            # requests 自动检测的编码可能不准确，特别是中文网页
+            if resp.encoding is None or resp.encoding.lower() == 'iso-8859-1':
+                # 从 content 或 headers 检测真实编码
+                content_type = resp.headers.get('content-type', '')
+                charset_match = re.search(r'charset=([^\s;]+)', content_type, re.IGNORECASE)
+                if charset_match:
+                    resp.encoding = charset_match.group(1)
+                else:
+                    # 从 HTML meta 标签检测
+                    content_bytes = resp.content
+                    meta_match = re.search(r'<meta[^>]+charset=["\']?([^"\'>\s]+)',
+                                          content_bytes[:1000].decode('utf-8', errors='ignore'),
+                                          re.IGNORECASE)
+                    if meta_match:
+                        resp.encoding = meta_match.group(1)
+                    else:
+                        # 默认 UTF-8
+                        resp.encoding = 'utf-8'
+
+            # 强制使用 UTF-8 处理中文网页
+            try:
+                html = resp.content.decode(resp.encoding or 'utf-8', errors='replace')
+            except:
+                html = resp.content.decode('utf-8', errors='replace')
+
+            content_data = extract_content(html, resp.url)
             result['success'] = True
             result['title'] = content_data['title']
             result['content'] = content_data['content']
@@ -294,6 +320,24 @@ def fetch_urls(urls, save_dir=None, delay=1.0, timeout=30000):
                     except:
                         pass
 
+                    # 滚动加载动态内容
+                    try:
+                        for scroll_times in range(5):  # 最多滚动5次
+                            old_height = page.evaluate("document.body.scrollHeight")
+                            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                            time.sleep(1)  # 等待加载
+                            new_height = page.evaluate("document.body.scrollHeight")
+                            if new_height == old_height:
+                                break  # 没有新内容了
+                    except:
+                        pass
+
+                    # 滚动回顶部
+                    try:
+                        page.evaluate("window.scrollTo(0, 0)")
+                    except:
+                        pass
+
                     final_url = page.url
                     html = page.content()
 
@@ -319,7 +363,28 @@ def fetch_urls(urls, save_dir=None, delay=1.0, timeout=30000):
                     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0 Safari/537.36'}
                     resp = requests.get(url, headers=headers, timeout=15, allow_redirects=True)
 
-                    content_data = extract_content(resp.text, resp.url)
+                    # 修复编码问题
+                    if resp.encoding is None or resp.encoding.lower() == 'iso-8859-1':
+                        content_type = resp.headers.get('content-type', '')
+                        charset_match = re.search(r'charset=([^\s;]+)', content_type, re.IGNORECASE)
+                        if charset_match:
+                            resp.encoding = charset_match.group(1)
+                        else:
+                            content_bytes = resp.content
+                            meta_match = re.search(r'<meta[^>]+charset=["\']?([^"\'>\s]+)',
+                                                  content_bytes[:1000].decode('utf-8', errors='ignore'),
+                                                  re.IGNORECASE)
+                            if meta_match:
+                                resp.encoding = meta_match.group(1)
+                            else:
+                                resp.encoding = 'utf-8'
+
+                    try:
+                        html = resp.content.decode(resp.encoding or 'utf-8', errors='replace')
+                    except:
+                        html = resp.content.decode('utf-8', errors='replace')
+
+                    content_data = extract_content(html, resp.url)
                     result['success'] = True
                     result['title'] = content_data['title']
                     result['content'] = content_data['content']

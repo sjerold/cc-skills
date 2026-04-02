@@ -42,9 +42,9 @@ results = fetch_urls(['url1', 'url2'], save_dir='./output')
 
 | 插件 | 版本 | 说明 |
 |------|------|------|
-| baidu-search | 2.1.0 | 百度搜索增强版 |
-| xianfeng-search | 1.2.0 | 飞书云文档搜索 |
-| web-article-fetcher | 1.1.0 | 网页文章批量抓取 |
+| baidu-search | 2.2.0 | 百度搜索增强版 |
+| xianfeng-search | 1.3.0 | 飞书云文档搜索 |
+| web-article-fetcher | 1.2.0 | 网页文章批量抓取 |
 
 ## 安装依赖
 
@@ -54,6 +54,16 @@ playwright install chromium
 ```
 
 ## 变更日志
+
+### 1.2.0 (2026-04-02)
+- **默认后台运行**：Chrome 默认 headless 模式启动（无窗口）
+- 修复 get_browser() 的 headless 默认参数
+
+### 1.1.0 (2026-04-02)
+- **修复编码问题**：静态抓取时显式检测和设置正确编码，解决中文乱码问题
+- **修复Playwright复用问题**：使用全局Playwright实例，避免asyncio循环冲突
+- **动态内容加载**：添加滚动功能，加载更多动态内容
+- 支持保存为Markdown文件
 
 ### 1.0.0 (2026-04-02)
 - 初始版本

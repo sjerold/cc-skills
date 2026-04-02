@@ -51,6 +51,10 @@ except ImportError:
     HAS_PLAYWRIGHT = False
     print("警告: Playwright未安装，请运行 pip install playwright", file=sys.stderr)
 
+# 全局 Playwright 实例（避免 asyncio 循环冲突）
+_global_playwright = None
+_global_browser = None
+
 
 def get_chrome_path():
     """获取Chrome可执行文件路径"""
@@ -153,11 +157,11 @@ def copy_chrome_profile():
     return TEMP_CHROME_DIR
 
 
-def start_debug_chrome(headless=False, wait_timeout=30):
+def start_debug_chrome(headless=True, wait_timeout=30):
     """启动调试模式的Chrome
 
     Args:
-        headless: 是否后台运行（无窗口）
+        headless: 是否后台运行（无窗口），默认True
         wait_timeout: 等待启动的超时时间（秒）
 
     Returns:
@@ -187,6 +191,10 @@ def start_debug_chrome(headless=False, wait_timeout=30):
         "--no-default-browser-check",
     ]
 
+    # headless 模式（后台运行）
+    if headless:
+        cmd.append("--headless=new")
+
     try:
         # 启动Chrome
         proc = subprocess.Popen(
@@ -215,7 +223,7 @@ def start_debug_chrome(headless=False, wait_timeout=30):
         return False
 
 
-def get_browser(headless=False, auto_start=True):
+def get_browser(headless=True, auto_start=True):
     """获取浏览器实例
 
     逻辑：
@@ -224,7 +232,7 @@ def get_browser(headless=False, auto_start=True):
     3. 没有 → 启动新的调试Chrome（如果auto_start=True）
 
     Args:
-        headless: 启动时是否后台运行（仅在需要启动时生效）
+        headless: 启动时是否后台运行（无窗口），默认True
         auto_start: 如果没有运行的Chrome，是否自动启动
 
     Returns:
@@ -244,14 +252,34 @@ def get_browser(headless=False, auto_start=True):
             print(f"调试Chrome未运行（端口 {CHROME_DEBUG_PORT}）", file=sys.stderr)
             return None
 
-    # 连接现有Chrome
+    # 连接现有Chrome（复用全局 Playwright 实例）
+    global _global_playwright, _global_browser
+
     try:
-        playwright = sync_playwright().start()
-        browser = playwright.chromium.connect_over_cdp(
+        # 如果已有浏览器连接且仍然有效，直接返回
+        if _global_browser is not None:
+            try:
+                # 测试连接是否有效
+                _global_browser.contexts
+                print(f"复用已有Chrome连接（端口 {CHROME_DEBUG_PORT}）", file=sys.stderr)
+                return _global_browser
+            except:
+                # 连接已失效，重新连接
+                _global_browser = None
+                if _global_playwright:
+                    try:
+                        _global_playwright.stop()
+                    except:
+                        pass
+                    _global_playwright = None
+
+        # 启动新的 Playwright 实例
+        _global_playwright = sync_playwright().start()
+        _global_browser = _global_playwright.chromium.connect_over_cdp(
             f'http://127.0.0.1:{CHROME_DEBUG_PORT}'
         )
         print(f"已连接调试Chrome（端口 {CHROME_DEBUG_PORT}）", file=sys.stderr)
-        return browser
+        return _global_browser
     except Exception as e:
         print(f"连接Chrome失败: {e}", file=sys.stderr)
         return None

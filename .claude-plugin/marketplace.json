@@ -38,6 +38,12 @@
       "skills": ["./skills/web-article-fetcher"]
     },
     {
+      "name": "xianfeng-search",
+      "source": "./xianfeng-search",
+      "description": "衔风搜索：飞书云文档智能搜索。支持目录遍历、缓存、文档名匹配。",
+      "skills": ["./skills/xianfeng-search"]
+    },
+    {
       "name": "token-usage",
       "source": "./token-usage",
       "description": "Token用量统计插件。",
