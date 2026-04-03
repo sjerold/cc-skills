@@ -48,6 +48,12 @@
       "source": "./token-usage",
       "description": "Token用量统计插件。",
       "skills": ["./skills/token-usage"]
+    },
+    {
+      "name": "common",
+      "source": "./common",
+      "description": "公共模块：异步Chrome管理、网页抓取、内容解析、Markdown生成。",
+      "skills": ["./skills/web-fetcher"]
     }
   ]
 }
