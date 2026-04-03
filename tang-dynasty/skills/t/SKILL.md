@@ -414,16 +414,26 @@ workspace/shared-pool/
 
 ### 信息来源标注
 
+**【重要】必须明确标注使用的cc-skills技能**
+
 ```yaml
-来源类型:
-  - 百度搜索: 外网实时信息
-  - 本地文件: 已有文档资料
-  - 衔风搜索: 企业内部知识库
+来源类型与对应技能:
+  - 百度搜索: baidu-search 技能（外网实时信息）
+  - 本地文件: file-searcher 技能（已有文档资料）
+  - 衔风搜索: xianfeng-search 技能（企业内部知识库）
 
 标注格式:
-  **来源**: [百度搜索/本地文件/衔风搜索]
+  ## 【[大臣名]搜索行动】
+
+  **使用技能**: [baidu-search / file-searcher / xianfeng-search]
   **关键词/文件**: [具体来源]
   **时间**: [获取时间]
+  **关键发现**:
+  - [发现1]
+  - [发现2]
+
+  ---
+  已添加到共享池，供各位大臣参考。
 ```
 
 ---
@@ -479,14 +489,16 @@ workspace/shared-pool/
 
 ## 内置技能集成
 
-**【重要】本系统默认优先使用cc-skills提供的插件技能**
+**【重要】本系统默认优先使用cc-skills提供的插件技能，且必须明确标注使用的技能名称**
 
 ### 当前已集成技能
 
-- **百度搜索** (`baidu-search`)：网络信息检索
-- **衔风搜索** (`xianfeng-search`)：专业搜索
-- **公文写作** (`gongwen-writer`)：公文生成
-- **文件搜索** (`file-searcher`)：本地文件检索
+| 技能名称 | skill ID | 用途 | 标注方式 |
+|---------|----------|------|---------|
+| 百度搜索 | `baidu-search` | 网络信息检索 | `**使用技能**: baidu-search` |
+| 文件搜索 | `file-searcher` | 本地文件检索 | `**使用技能**: file-searcher` |
+| 衔风搜索 | `xianfeng-search` | 企业知识库搜索 | `**使用技能**: xianfeng-search` |
+| 公文写作 | `gongwen-writer` | 公文生成 | `**使用技能**: gongwen-writer` |
 
 ### 调用原则
 
@@ -494,6 +506,11 @@ workspace/shared-pool/
 优先级:
   1. 优先使用cc-skills已发布的技能
   2. 如无对应技能，再使用内置工具（Grep、Glob、Read等）
+
+标注要求:
+  - 每次搜索必须标注使用的技能名称
+  - 格式: **使用技能**: [skill ID]
+  - 示例: **使用技能**: baidu-search
 ```
 
 ---
