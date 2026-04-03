@@ -19,7 +19,7 @@
     "文章采集",
     "增量更新"
   ],
-  "dependencies": {
-    "common": ">=1.4.0"
-  }
+  "dependencies": [
+    { "name": "common", "version": ">=1.4.0" }
+  ]
 }

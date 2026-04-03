@@ -19,7 +19,7 @@
     "百度搜索",
     "内容抓取"
   ],
-  "dependencies": {
-    "common": ">=1.4.0"
-  }
+  "dependencies": [
+    { "name": "common", "version": ">=1.4.0" }
+  ]
 }
