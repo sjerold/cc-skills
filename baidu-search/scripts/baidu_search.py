@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-百度搜索脚本 - 使用common模块统一Chrome管理
+百度搜索脚本 - 异步版本
 
-改动：
-- 使用common/chrome_manager连接现有Chrome（端口9222）
-- 使用common/web_fetcher抓取网页
-- 在现有浏览器开新tab，复用登录状态
+使用异步 Playwright，配合 common 模块的异步 chrome_manager。
 """
 
 import sys
@@ -14,30 +11,44 @@ import os
 import json
 import io
 import argparse
-import time
 import uuid
 import urllib.parse
 from datetime import datetime
 
 # 添加common模块路径
-COMMON_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'common', 'scripts')
-sys.path.insert(0, COMMON_PATH)
+_current_dir = os.path.dirname(os.path.abspath(__file__))
+_common_dir = os.path.join(os.path.dirname(os.path.dirname(_current_dir)), 'common', 'scripts')
+sys.path.insert(0, _common_dir)
 
 # 确保 UTF-8 编码
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
-# 导入common模块
+# 导入异步 common 模块
 try:
-    from chrome_manager import get_browser, get_page, close_browser, is_chrome_debug_running, start_debug_chrome
-    HAS_PLAYWRIGHT = True
+    from chrome_manager import (
+        get_browser_async, get_page_async, close_browser_async, close_page_async,
+        HAS_PLAYWRIGHT
+    )
 except ImportError as e:
     print(f"无法导入chrome_manager: {e}", file=sys.stderr)
     HAS_PLAYWRIGHT = False
 
 try:
-    from web_fetcher import fetch_urls, save_result_to_markdown
+    from web_fetcher import fetch_urls_async
 except ImportError as e:
     print(f"无法导入web_fetcher: {e}", file=sys.stderr)
+
+try:
+    from content_parser import extract_content
+except ImportError:
+    sys.path.insert(0, _common_dir)
+    from content_parser import extract_content
+
+try:
+    from markdown_writer import save_search_report, save_summary
+except ImportError:
+    sys.path.insert(0, _common_dir)
+    from markdown_writer import save_search_report, save_summary
 
 try:
     from bs4 import BeautifulSoup
@@ -72,39 +83,26 @@ def get_session_dir(base_dir=None, session_id=None):
     return session_dir, session_id
 
 
-def check_captcha(page):
-    """检测验证码"""
-    indicators = ['wappass.baidu.com', 'captcha', '验证']
-
-    try:
-        url = page.url.lower()
-        content = page.content().lower()
-
-        is_captcha = any(i in url for i in indicators) or '百度安全验证' in content
-
-        if is_captcha:
-            print("\n检测到验证码！", file=sys.stderr)
-            return True
-    except:
-        pass
-    return False
-
-
 def calculate_quality_score(result):
-    """根据URL和标题计算质量分数
-
-    评分规则：
-    - 官方文档/开源项目: python.org, github.com, gitee.com 等 × 2.5
-    - 技术社区: stackoverflow, csdn, juejin, zhihu 等 × 1.4~2.3
-    - 官方机构: edu.cn, gov.cn × 1.8
-    - 企业官网: 主要企业域名 × 2.0
-    - 新闻媒体: 主流新闻网站 × 1.5
-    - 低质量: 贴吧、论坛灌水等 × 0.3~0.5
-    """
+    """根据URL和标题计算质量分数"""
     url = result.get('url', '').lower()
     title = result.get('title', '').lower()
+    abstract = result.get('abstract', '').lower()
 
     base_score = 1.0
+
+    # 应用下载类链接 (× 0.1) - 跳过
+    app_download_patterns = [
+        'app下载', 'app官方', '应用下载', '软件下载',
+        '安卓版下载', '手机app', '安装包', '官方下载',
+        'sj.qq.com', 'appdetail', '32r.com', 'duote.com',
+        '多多软件', '华军软件', '应用宝官网', '应用宝下载',
+        '无病毒', '免广告骚扰', '通过应用宝',
+        'play.google.com', 'google play', 'app store',
+    ]
+    for pattern in app_download_patterns:
+        if pattern in url or pattern in title or pattern in abstract:
+            return base_score * 0.1
 
     # 官方文档/开源项目 (× 2.5)
     official_patterns = ['python.org', 'github.com', 'gitee.com', 'pypi.org',
@@ -148,7 +146,7 @@ def calculate_quality_score(result):
         if pattern in url:
             return base_score * 1.5
 
-    # 低质量内容 (× 0.3~0.5)
+    # 低质量内容 (× 0.3)
     low_quality = ['tieba.baidu.com', 'forum', 'bbs', '贴吧', '灌水']
     for pattern in low_quality:
         if pattern in url or pattern in title:
@@ -157,19 +155,40 @@ def calculate_quality_score(result):
     return base_score
 
 
-def search(query, limit=50):
-    """执行百度搜索
+async def check_captcha_async(page):
+    """检测验证码（异步）"""
+    indicators = ['wappass.baidu.com', 'captcha', '验证']
+
+    try:
+        url = page.url.lower()
+        content = await page.content()
+        content_lower = content.lower()
+
+        is_captcha = any(i in url for i in indicators) or '百度安全验证' in content
+
+        if is_captcha:
+            print("\n检测到验证码！", file=sys.stderr)
+            return True
+    except:
+        pass
+    return False
+
+
+async def search_async(query, limit=50):
+    """执行百度搜索（异步）
 
     Args:
         query: 搜索关键词
         limit: 结果数量
+
+    Returns:
+        list: 搜索结果列表
     """
     if not HAS_PLAYWRIGHT:
-        print("请安装: pip install playwright", file=sys.stderr)
+        print("请安装: pip install playwright && playwright install chromium", file=sys.stderr)
         return []
 
-    # 使用common模块连接Chrome
-    browser = get_browser()
+    playwright, browser = await get_browser_async()
     if not browser:
         print("无法连接Chrome", file=sys.stderr)
         return []
@@ -178,39 +197,39 @@ def search(query, limit=50):
 
     page = None
     try:
-        # 创建新页面（在现有浏览器开新tab）
-        page = get_page(browser, url='https://www.baidu.com', timeout=30000)
+        page = await get_page_async(browser, url='https://www.baidu.com', timeout=30000)
         if not page:
             print("无法创建页面", file=sys.stderr)
             return []
 
         # 检查验证码
-        if check_captcha(page):
+        if await check_captcha_async(page):
             print("请在浏览器窗口中完成验证...", file=sys.stderr)
-            # 等待用户处理验证码
+            import asyncio
             for _ in range(60):
-                time.sleep(1)
-                if not check_captcha(page):
+                await asyncio.sleep(1)
+                if not await check_captcha_async(page):
                     print("验证完成！", file=sys.stderr)
                     break
 
         # 搜索
+        import asyncio
         for pagenum in range(1, (limit // 10) + 2):
             pn = (pagenum - 1) * 10
             url = f"https://www.baidu.com/s?wd={urllib.parse.quote(query)}&pn={pn}"
 
-            page.goto(url, timeout=30000)
-            time.sleep(2)
+            await page.goto(url, timeout=30000, wait_until="load")
+            await asyncio.sleep(2)
 
-            if check_captcha(page):
+            if await check_captcha_async(page):
                 break
 
             try:
-                page.wait_for_selector('div.result', timeout=10000)
+                await page.wait_for_selector('div.result', timeout=10000)
             except:
                 continue
 
-            html = page.content()
+            html = await page.content()
 
             if HAS_BS4:
                 soup = BeautifulSoup(html, 'html.parser')
@@ -234,14 +253,9 @@ def search(query, limit=50):
     except Exception as e:
         print(f"搜索错误: {e}", file=sys.stderr)
     finally:
-        # 关闭页面
         if page:
-            try:
-                page.close()
-            except:
-                pass
-        # 断开连接，保持Chrome运行
-        close_browser(browser, keep_running=True)
+            await close_page_async(page)
+        await close_browser_async(browser, playwright, keep_running=True)
 
     # 去重
     seen = set()
@@ -258,65 +272,8 @@ def search(query, limit=50):
 
 
 def compile_results(query, results, fetched, save_dir, session_id):
-    """整理抓取结果，生成最终Markdown报告"""
-    if not save_dir:
-        return None
-
-    os.makedirs(save_dir, exist_ok=True)
-    report_path = os.path.join(save_dir, f"搜索报告_{session_id}.md")
-
-    with open(report_path, 'w', encoding='utf-8') as f:
-        f.write(f"# 搜索报告：{query}\n\n")
-        f.write(f"> 生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write(f"> 会话ID：{session_id}\n\n")
-
-        f.write("## 搜索概况\n\n")
-        f.write(f"- **搜索关键词**: {query}\n")
-        f.write(f"- **搜索结果数**: {len(results)} 条\n")
-        fetched_success = sum(1 for r in fetched if r.get('success'))
-        f.write(f"- **抓取成功数**: {fetched_success}/{len(fetched)} 条\n\n")
-
-        f.write("## 参考链接\n\n")
-        f.write("| 序号 | 标题 | URL | 质量分数 |\n")
-        f.write("|------|------|-----|----------|\n")
-        for i, r in enumerate(results[:30], 1):
-            title = r.get('title', 'N/A')[:40]
-            url = r.get('url', '')
-            score = r.get('score', 1.0)
-            f.write(f"| {i} | {title} | [链接]({url}) | {score:.2f} |\n")
-        f.write("\n")
-
-        f.write("## 抓取内容摘要\n\n")
-        for i, r in enumerate(fetched, 1):
-            if r.get('success'):
-                title = r.get('title', '无标题')
-                url = r.get('url', '')
-                content_len = r.get('length', 0)
-                fetch_type = r.get('fetch_type', 'unknown')
-                filepath = r.get('file', '')
-
-                f.write(f"### {i}. {title}\n\n")
-                f.write(f"- **URL**: {url}\n")
-                f.write(f"- **内容长度**: {content_len} 字符\n")
-                f.write(f"- **抓取方式**: {fetch_type}\n")
-                if filepath:
-                    f.write(f"- **本地文件**: `{os.path.basename(filepath)}`\n")
-                f.write("\n")
-
-                content = r.get('content', '')
-                if content:
-                    preview = content[:500]
-                    if len(content) > 500:
-                        preview += '...'
-                    f.write("**内容预览**:\n\n")
-                    f.write("```\n")
-                    f.write(preview)
-                    f.write("\n```\n\n")
-
-                f.write("---\n\n")
-
-    print(f"\n报告已生成: {report_path}", file=sys.stderr)
-    return report_path
+    """整理抓取结果，生成最终Markdown报告（调用markdown_writer模块）"""
+    return save_search_report(query, results, fetched, save_dir, session_id)
 
 
 def read_all_md_files(save_dir):
@@ -339,68 +296,25 @@ def read_all_md_files(save_dir):
 
 
 def generate_summary(query, results, md_contents, save_dir, session_id):
-    """生成搜索结果总结"""
-    summary_path = os.path.join(save_dir, f"搜索总结_{session_id}.md")
-
-    with open(summary_path, 'w', encoding='utf-8') as f:
-        f.write(f"# 搜索总结：{query}\n\n")
-        f.write(f"> 生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write(f"> 会话ID：{session_id}\n\n")
-
-        f.write("## 统计信息\n\n")
-        f.write(f"- **搜索结果**: {len(results)} 条\n")
-        f.write(f"- **抓取文件**: {len(md_contents)} 个\n")
-
-        total_length = sum(len(content) for content in md_contents.values())
-        f.write(f"- **总内容量**: {total_length:,} 字符\n\n")
-
-        f.write("## 参考来源\n\n")
-        for i, (filename, content) in enumerate(md_contents.items(), 1):
-            import re
-            title_match = re.search(r'^#\s+(.+)$', content, re.MULTILINE)
-            title = title_match.group(1) if title_match else filename
-            f.write(f"{i}. {title} (`{filename}`)\n")
-        f.write("\n")
-
-        f.write("## 整合内容\n\n")
-        f.write("---\n\n")
-
-        for i, (filename, content) in enumerate(md_contents.items(), 1):
-            import re
-            title_match = re.search(r'^#\s+(.+)$', content, re.MULTILINE)
-            title = title_match.group(1) if title_match else filename
-
-            f.write(f"### 来源 {i}: {title}\n\n")
-
-            content_match = re.search(r'## 正文内容\s*\n([\s\S]+)$', content)
-            if content_match:
-                body = content_match.group(1).strip()
-                if len(body) > 3000:
-                    body = body[:3000] + '\n\n... (内容已截断)'
-                f.write(body)
-            else:
-                f.write(content[:3000])
-
-            f.write("\n\n---\n\n")
-
-    print(f"总结已生成: {summary_path}", file=sys.stderr)
-    return summary_path
+    """生成搜索结果总结（调用markdown_writer模块）"""
+    return save_summary(query, results, md_contents, save_dir, session_id)
 
 
-def main():
-    parser = argparse.ArgumentParser(description='百度搜索增强版')
+async def main_async():
+    """异步主函数"""
+    parser = argparse.ArgumentParser(description='百度搜索增强版（异步）')
     parser.add_argument('query', nargs='*', help='搜索词')
     parser.add_argument('-n', '--limit', type=int, default=20, help='搜索结果数量 (默认20)')
     parser.add_argument('-t', '--top-percent', type=float, default=35, help='按分数筛选前N%%的结果进行抓取 (默认35%%)')
     parser.add_argument('--min-score', type=float, default=1.0, help='最低分数阈值 (默认1.0)')
-    parser.add_argument('-o', '--output', help='保存目录 (默认 ~/Downloads/baidu_search/<session_id>)')
+    parser.add_argument('-o', '--output', help='保存目录')
     parser.add_argument('--session-id', help='指定会话ID')
+    parser.add_argument('-w', '--workers', type=int, default=4, help='抓取并发数')
     parser.add_argument('--json', action='store_true', help='JSON输出')
     parser.add_argument('--no-summarize', action='store_true', help='不生成总结报告')
 
     args = parser.parse_args()
 
-    # 检查是否有搜索词
     if not args.query:
         parser.print_help()
         return
@@ -413,9 +327,9 @@ def main():
     print(f"会话ID: {session_id}", file=sys.stderr)
     print(f"保存目录: {session_dir}", file=sys.stderr)
 
-    # 搜索
-    limit = max(args.limit, 20)  # 最小搜索数量 20
-    results = search(query, limit)
+    # 搜索（异步）
+    limit = max(args.limit, 20)
+    results = await search_async(query, limit)
     print(f"找到 {len(results)} 条结果", file=sys.stderr)
 
     if not results:
@@ -430,9 +344,9 @@ def main():
 
     print(f"筛选: 分数前{args.top_percent}% + 最低{args.min_score}分 = {fetch_count}条", file=sys.stderr)
 
-    # 抓取网页（使用common模块）
+    # 抓取网页（异步并行）
     urls = [r['url'] for r in results[:fetch_count]]
-    fetched = fetch_urls(urls, save_dir=session_dir)
+    fetched = await fetch_urls_async(urls, save_dir=session_dir, workers=args.workers)
     success_count = sum(1 for r in fetched if r.get('success'))
     print(f"抓取成功: {success_count}/{len(urls)}", file=sys.stderr)
 
@@ -488,6 +402,12 @@ def main():
         print("\n" + "=" * 60)
         print(f"会话目录: {session_dir}")
         print("=" * 60)
+
+
+def main():
+    """同步入口"""
+    import asyncio
+    asyncio.run(main_async())
 
 
 if __name__ == '__main__':

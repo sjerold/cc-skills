@@ -1,7 +1,7 @@
 {
   "name": "baidu-search",
   "description": "百度搜索增强版：大规模搜索、智能分数筛选、内容抓取、自动总结。支持Session管理、Playwright动态渲染、Markdown保存。",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "author": {
     "name": "sjerold",
     "url": "https://github.com/sjerold"

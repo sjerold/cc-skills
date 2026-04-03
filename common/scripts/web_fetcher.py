@@ -1,546 +1,277 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-网页抓取模块 - 统一的网页内容抓取
+网页抓取模块 - 异步版本
 
-使用chrome_manager连接现有Chrome，在新tab中抓取内容。
-复用用户的登录状态和Cookie。
+使用异步 Playwright 抓取网页内容，复用用户Chrome的登录状态。
 
 使用方式：
-    from web_fetcher import fetch_url, fetch_urls
+    from web_fetcher import fetch_url_async, fetch_urls_async
 
-    result = fetch_url('https://example.com')
-    results = fetch_urls(['url1', 'url2'], save_dir='./output')
+    result = await fetch_url_async('https://example.com')
+    results = await fetch_urls_async(['url1', 'url2'], save_dir='./output')
 """
 
 import sys
 import os
-import re
-import time
-import hashlib
-import json
-from datetime import datetime
-from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import asyncio
 
-# 导入chrome_manager
+# 导入异步 chrome_manager
 try:
-    from chrome_manager import get_browser, get_page, close_browser, HAS_PLAYWRIGHT
+    from chrome_manager import (
+        get_browser_async, get_page_async, close_browser_async, close_page_async,
+        HAS_PLAYWRIGHT
+    )
 except ImportError:
-    # 如果直接运行，添加当前目录到path
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    from chrome_manager import get_browser, get_page, close_browser, HAS_PLAYWRIGHT
+    from chrome_manager import (
+        get_browser_async, get_page_async, close_browser_async, close_page_async,
+        HAS_PLAYWRIGHT
+    )
 
-# 尝试导入BS4
+# 导入内容解析模块
 try:
-    from bs4 import BeautifulSoup
-    HAS_BS4 = True
+    from content_parser import extract_content, check_anti_crawl, is_redirect_url
 except ImportError:
-    HAS_BS4 = False
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from content_parser import extract_content, check_anti_crawl, is_redirect_url
 
-# 尝试导入requests（备用静态抓取）
+# 导入Markdown写入模块
 try:
-    import requests
-    HAS_REQUESTS = True
+    from markdown_writer import save_result_to_markdown
 except ImportError:
-    HAS_REQUESTS = False
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from markdown_writer import save_result_to_markdown
 
 
-def extract_content(html, url=''):
-    """从HTML中提取正文内容
+# ============ 异步辅助方法 ============
+
+async def wait_for_redirect(page, original_url, max_wait=5, check_interval=1):
+    """等待页面跳转完成（循环检测）
 
     Args:
-        html: HTML内容
-        url: 原始URL（用于日志）
+        page: Playwright Page对象
+        original_url: 原始跳转链接URL
+        max_wait: 最大等待时间（秒）
+        check_interval: 检测间隔（秒）
+    """
+    # 基于原始URL判断是否是跳转链接
+    if not is_redirect_url(original_url):
+        return
+
+    print(f"检测到跳转链接，等待跳转（最多{max_wait}秒）...", file=sys.stderr)
+    waited = 0
+    last_url = page.url
+
+    while waited < max_wait:
+        await asyncio.sleep(check_interval)
+        waited += check_interval
+
+        current_url = page.url
+
+        # URL发生变化，说明跳转正在进行
+        if current_url != last_url:
+            # 如果跳转后的URL不再是重定向链接（允许是百度百科等百度旗下业务站），提前结束等待
+            if not is_redirect_url(current_url):
+                print(f"跳转成功({waited}s): {current_url[:60]}...", file=sys.stderr)
+                try:
+                    await page.wait_for_load_state("networkidle", timeout=2000)
+                except:
+                    pass
+                return
+            last_url = current_url
+
+        if waited % 5 == 0:
+            print(f"等待跳转... {waited}s", file=sys.stderr)
+
+    # 超时后直接继续，抓取当前页面内容
+    print(f"等待结束({max_wait}s): {page.url[:60]}...", file=sys.stderr)
+
+
+async def _fetch_with_page(page, url, timeout=30000, wait_time=2):
+    """使用给定page抓取URL（内部方法）
+
+    Args:
+        page: Playwright Page对象
+        url: 要抓取的URL
+        timeout: 超时时间
+        wait_time: 基础等待时间
 
     Returns:
-        dict: {title, content, length}
+        dict: 抓取结果
     """
-    if HAS_BS4:
-        soup = BeautifulSoup(html, 'html.parser')
+    try:
+        await page.goto(url, timeout=timeout, wait_until="load")
 
-        # 移除无用标签
-        for tag in soup(['script', 'style', 'nav', 'footer', 'header', 'aside', 'iframe', 'noscript']):
-            tag.decompose()
+        # 等待跳转完成（如果是跳转链接）
+        await wait_for_redirect(page, url)
 
-        # 提取标题
-        title = ''
-        if soup.find('title'):
-            title = soup.find('title').get_text(strip=True)
-        elif soup.find('h1'):
-            title = soup.find('h1').get_text(strip=True)
-
-        # 提取正文 - 尝试多个选择器
-        content_text = ''
+        # 使用 wait_for_selector 等待主要内容元素加载
         content_selectors = [
-            'article', 'main', '.content', '.article', '.post',
-            '.entry-content', '.post-content', '#content',
-            '.article-content', '.detail', '.body'
+            'article', '.article-content', '.content', '.post-content',
+            '.lemma-summary', '.para',  # 百度百科
+            '.main-content', '#content', 'main',
+            '.detail', '.body', '.text',
         ]
 
-        for selector in content_selectors:
-            elements = soup.select(selector)
-            if elements:
-                # 选择内容最长的元素
-                best_elem = max(elements, key=lambda e: len(e.get_text()))
-                content_text = best_elem.get_text(separator='\n', strip=True)
-                if len(content_text) > 200:
-                    break
-
-        # 如果没找到，用body
-        if not content_text and soup.find('body'):
-            content_text = soup.find('body').get_text(separator='\n', strip=True)
-
-    else:
-        # 无BS4，用正则
-        title_match = re.search(r'<title[^>]*>([^<]+)</title>', html, re.IGNORECASE)
-        title = title_match.group(1).strip() if title_match else ''
-
-        # 移除script和style
-        text = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL | re.IGNORECASE)
-        text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.DOTALL | re.IGNORECASE)
-        text = re.sub(r'<[^>]+>', '\n', text)
-        content_text = re.sub(r'\n+', '\n', text).strip()
-
-    # 清理内容
-    content_text = '\n'.join(line.strip() for line in content_text.split('\n') if line.strip())
-
-    # 截断过长内容
-    max_length = 15000
-    if len(content_text) > max_length:
-        content_text = content_text[:max_length] + '\n... (内容已截断)'
-
-    return {
-        'title': title,
-        'content': content_text,
-        'length': len(content_text)
-    }
-
-
-def check_anti_crawl(html, url=''):
-    """检测是否遇到反爬/验证码
-
-    Args:
-        html: HTML内容
-        url: 当前URL
-
-    Returns:
-        bool: True表示遇到反爬
-    """
-    html_lower = html.lower()
-    url_lower = url.lower()
-
-    anti_patterns = [
-        '百度安全验证', '安全验证', '验证码', 'captcha',
-        'wappass.baidu.com', '请输入验证码', '访问过于频繁',
-        '人机验证', '滑块验证', 'security check',
-        'cloudflare', '验证您的身份'
-    ]
-
-    for pattern in anti_patterns:
-        if pattern in html_lower or pattern in url_lower:
-            return True
-
-    return False
-
-
-def _fetch_single_static(url):
-    """静态抓取单个URL（用于线程池）"""
-    result = {
-        'success': False,
-        'url': url,
-        'original_url': url,
-        'title': '',
-        'content': '',
-        'length': 0,
-        'error': None,
-        'anti_crawl': False,
-        'fetch_type': ''
-    }
-
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0 Safari/537.36'}
-        resp = requests.get(url, headers=headers, timeout=15, allow_redirects=True)
-
-        # 修复编码问题
-        if resp.encoding is None or resp.encoding.lower() == 'iso-8859-1':
-            content_type = resp.headers.get('content-type', '')
-            charset_match = re.search(r'charset=([^\s;]+)', content_type, re.IGNORECASE)
-            if charset_match:
-                resp.encoding = charset_match.group(1)
-            else:
-                content_bytes = resp.content
-                meta_match = re.search(r'<meta[^>]+charset=["\']?([^"\'>\s]+)',
-                                      content_bytes[:1000].decode('utf-8', errors='ignore'),
-                                      re.IGNORECASE)
-                if meta_match:
-                    resp.encoding = meta_match.group(1)
-                else:
-                    resp.encoding = 'utf-8'
-
+        content_loaded = False
+        combined_selector = ', '.join(content_selectors)
         try:
-            html = resp.content.decode(resp.encoding or 'utf-8', errors='replace')
+            # 并行监控所有可能的内容选择器，只要有一处匹配就会立即返回，不会造成 N * 5s 的延迟
+            await page.wait_for_selector(combined_selector, timeout=5000)
+            content_loaded = True
+            print(f"内容元素已加载完成", file=sys.stderr)
         except:
-            html = resp.content.decode('utf-8', errors='replace')
+            pass
 
-        content_data = extract_content(html, resp.url)
-        result['success'] = True
-        result['title'] = content_data['title']
-        result['content'] = content_data['content']
-        result['length'] = content_data['length']
-        result['url'] = resp.url
-        result['fetch_type'] = 'static'
-
-    except Exception as e:
-        result['error'] = str(e)
-
-    return result
-
-
-def fetch_url(url, timeout=30000, wait_time=2):
-    """抓取单个URL的内容
-
-    Args:
-        url: 要抓取的URL
-        timeout: 页面加载超时（毫秒）
-        wait_time: 等待JS渲染的时间（秒）
-
-    Returns:
-        dict: {success, title, content, url, length, error, anti_crawl}
-    """
-    result = {
-        'success': False,
-        'url': url,
-        'original_url': url,
-        'title': '',
-        'content': '',
-        'length': 0,
-        'error': None,
-        'anti_crawl': False,
-        'fetch_type': ''
-    }
-
-    if HAS_PLAYWRIGHT:
-        # 使用Playwright抓取（推荐）
-        browser = get_browser()
-        if not browser:
-            result['error'] = '无法连接Chrome'
-            return result
-
-        page = None
-        try:
-            page = get_page(browser, timeout=timeout)
-            if not page:
-                result['error'] = '无法创建页面'
-                return result
-
-            print(f"抓取: {url[:60]}...", file=sys.stderr)
-            page.goto(url, timeout=timeout, wait_until="domcontentloaded")
-            time.sleep(wait_time)
-
-            # 等待网络空闲
+        # 如果没有匹配的内容元素，等待 networkidle
+        if not content_loaded:
             try:
-                page.wait_for_load_state("networkidle", timeout=10000)
+                await page.wait_for_load_state("networkidle", timeout=10000)
             except:
                 pass
 
-            final_url = page.url
-            html = page.content()
+        # 额外等待动态内容渲染
+        await asyncio.sleep(wait_time)
 
-            # 检测反爬
-            if check_anti_crawl(html, final_url):
-                result['anti_crawl'] = True
-                result['error'] = '遇到反爬限制'
-                result['url'] = final_url
-            else:
-                content_data = extract_content(html, final_url)
-                result['success'] = True
-                result['title'] = content_data['title']
-                result['content'] = content_data['content']
-                result['length'] = content_data['length']
-                result['url'] = final_url
-                result['fetch_type'] = 'playwright'
+        final_url = page.url
+        html = await page.content()
 
-        except Exception as e:
-            result['error'] = str(e)
+        if check_anti_crawl(html, final_url):
+            return {'success': False, 'url': final_url, 'original_url': url,
+                    'anti_crawl': True, 'error': '遇到反爬限制'}
 
-        finally:
-            # 关闭页面
-            if page:
-                try:
-                    page.close()
-                except:
-                    pass
-            close_browser(browser, keep_running=True)
+        content_data = extract_content(html, final_url)
 
-    elif HAS_REQUESTS:
-        # 静态抓取（备用）
-        print(f"静态抓取: {url[:60]}...", file=sys.stderr)
-        try:
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36'
-            }
-            resp = requests.get(url, headers=headers, timeout=15, allow_redirects=True)
+        # 检查内容长度（降低阈值，因为清理后内容可能较短）
+        if content_data['length'] < 50:
+            return {'success': False, 'url': final_url, 'original_url': url,
+                    'error': f'内容过短: {content_data["length"]} 字符'}
 
-            # 修复编码问题：显式检测并设置正确编码
-            # requests 自动检测的编码可能不准确，特别是中文网页
-            if resp.encoding is None or resp.encoding.lower() == 'iso-8859-1':
-                # 从 content 或 headers 检测真实编码
-                content_type = resp.headers.get('content-type', '')
-                charset_match = re.search(r'charset=([^\s;]+)', content_type, re.IGNORECASE)
-                if charset_match:
-                    resp.encoding = charset_match.group(1)
-                else:
-                    # 从 HTML meta 标签检测
-                    content_bytes = resp.content
-                    meta_match = re.search(r'<meta[^>]+charset=["\']?([^"\'>\s]+)',
-                                          content_bytes[:1000].decode('utf-8', errors='ignore'),
-                                          re.IGNORECASE)
-                    if meta_match:
-                        resp.encoding = meta_match.group(1)
-                    else:
-                        # 默认 UTF-8
-                        resp.encoding = 'utf-8'
+        return {
+            'success': True, 'url': final_url, 'original_url': url,
+            'title': content_data['title'], 'content': content_data['content'],
+            'length': content_data['length'], 'fetch_type': 'playwright_async'
+        }
 
-            # 强制使用 UTF-8 处理中文网页
-            try:
-                html = resp.content.decode(resp.encoding or 'utf-8', errors='replace')
-            except:
-                html = resp.content.decode('utf-8', errors='replace')
-
-            content_data = extract_content(html, resp.url)
-            result['success'] = True
-            result['title'] = content_data['title']
-            result['content'] = content_data['content']
-            result['length'] = content_data['length']
-            result['url'] = resp.url
-            result['fetch_type'] = 'static'
-
-        except Exception as e:
-            result['error'] = str(e)
-
-    else:
-        result['error'] = 'Playwright和requests均未安装'
-
-    return result
+    except Exception as e:
+        return {'success': False, 'url': url, 'original_url': url, 'error': str(e)}
 
 
-def fetch_urls(urls, save_dir=None, delay=1.0, timeout=30000, workers=3):
-    """批量抓取URL
+# ============ 公开API ============
+
+async def fetch_url_async(url, timeout=30000, wait_time=2):
+    """抓取单个URL（异步）
+
+    Args:
+        url: 要抓取的URL
+        timeout: 超时时间（毫秒）
+        wait_time: 等待时间（秒）
+
+    Returns:
+        dict: 抓取结果
+    """
+    playwright, browser = await get_browser_async()
+    if not browser:
+        return {'success': False, 'url': url, 'original_url': url, 'error': '无法连接Chrome'}
+
+    page = None
+    try:
+        page = await get_page_async(browser, timeout=timeout)
+        if not page:
+            return {'success': False, 'url': url, 'original_url': url, 'error': '无法创建页面'}
+
+        result = await _fetch_with_page(page, url, timeout, wait_time)
+        return result
+
+    finally:
+        if page:
+            await close_page_async(page)
+        await close_browser_async(browser, playwright, keep_running=True)
+
+
+async def fetch_urls_async(urls, save_dir=None, timeout=30000, workers=4):
+    """并行抓取多个URL（异步）
+
+    复用 _fetch_with_page 核心逻辑，共享 browser/context。
 
     Args:
         urls: URL列表
-        save_dir: 保存目录（可选，保存为Markdown文件）
-        delay: 请求间隔（秒）
-        timeout: 超时时间
-        workers: 静态抓取线程数（默认3）
+        save_dir: 保存目录
+        timeout: 超时时间（毫秒）
+        workers: 并发数
 
     Returns:
         list: 抓取结果列表
     """
-    results = []
+    if not urls:
+        return []
 
-    # 连接浏览器（一次性连接，批量抓取）
-    browser = None
-    if HAS_PLAYWRIGHT:
-        browser = get_browser()
+    print(f"并行抓取 {len(urls)} 个URL（{workers} 并发）", file=sys.stderr)
 
-    # 使用线程池并行静态抓取
-    if browser is None and HAS_REQUESTS and workers > 1:
-        print(f"使用 {workers} 线程并行抓取 {len(urls)} 个URL", file=sys.stderr)
-        with ThreadPoolExecutor(max_workers=workers) as executor:
-            future_to_url = {executor.submit(_fetch_single_static, url): url for url in urls}
-            for future in as_completed(future_to_url):
-                result = future.result()
+    playwright, browser = await get_browser_async()
+    if not browser:
+        return [{'success': False, 'url': url, 'original_url': url, 'error': '无法连接Chrome'} for url in urls]
+
+    context = browser.contexts[0] if browser.contexts else await browser.new_context()
+    semaphore = asyncio.Semaphore(workers)
+
+    async def fetch_one(url, idx):
+        """单个URL抓取（复用 _fetch_with_page）"""
+        async with semaphore:
+            page = None
+            try:
+                page = await context.new_page()
+                page.set_default_timeout(timeout)
+
+                print(f"抓取 [{idx+1}/{len(urls)}]: {url[:50]}...", file=sys.stderr)
+
+                result = await _fetch_with_page(page, url, timeout)
+
                 if result.get('success') and save_dir:
                     save_result_to_markdown(result, save_dir)
-                results.append(result)
-        # 按原始顺序排序
-        url_to_result = {r['original_url']: r for r in results}
-        results = [url_to_result.get(url, {'success': False, 'url': url, 'error': '未抓取'}) for url in urls]
-        close_browser(None, keep_running=True)
-        return results
 
-    try:
-        for i, url in enumerate(urls):
-            print(f"抓取 [{i+1}/{len(urls)}]: {url[:50]}...", file=sys.stderr)
+                return result
 
-            if delay and i > 0:
-                time.sleep(delay)
+            except Exception as e:
+                print(f"抓取失败 [{idx+1}]: {e}", file=sys.stderr)
+                return {'success': False, 'url': url, 'original_url': url, 'error': str(e)}
+            finally:
+                if page:
+                    await close_page_async(page)
 
-            result = {
-                'success': False,
-                'url': url,
-                'original_url': url,
-                'title': '',
-                'content': '',
-                'length': 0,
-                'error': None,
-                'anti_crawl': False,
-                'fetch_type': ''
-            }
+    # 并行执行
+    tasks = [fetch_one(url, i) for i, url in enumerate(urls)]
+    results = await asyncio.gather(*tasks)
 
-            if browser:
-                # Playwright抓取
-                page = None
-                try:
-                    page = get_page(browser, timeout=timeout)
-                    if not page:
-                        result['error'] = '无法创建页面'
-                        results.append(result)
-                        continue
+    # 不调用 browser.close() 和 playwright.stop()，避免 EPIPE
+    await close_browser_async(browser, playwright, keep_running=True)
 
-                    page.goto(url, timeout=timeout, wait_until="domcontentloaded")
-                    time.sleep(2)
-
-                    try:
-                        page.wait_for_load_state("networkidle", timeout=10000)
-                    except:
-                        pass
-
-                    # 滚动加载动态内容
-                    try:
-                        for scroll_times in range(5):  # 最多滚动5次
-                            old_height = page.evaluate("document.body.scrollHeight")
-                            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                            time.sleep(1)  # 等待加载
-                            new_height = page.evaluate("document.body.scrollHeight")
-                            if new_height == old_height:
-                                break  # 没有新内容了
-                    except:
-                        pass
-
-                    # 滚动回顶部
-                    try:
-                        page.evaluate("window.scrollTo(0, 0)")
-                    except:
-                        pass
-
-                    final_url = page.url
-                    html = page.content()
-
-                    if check_anti_crawl(html, final_url):
-                        result['anti_crawl'] = True
-                        result['error'] = '遇到反爬限制'
-                        result['url'] = final_url
-                    else:
-                        content_data = extract_content(html, final_url)
-                        result['success'] = True
-                        result['title'] = content_data['title']
-                        result['content'] = content_data['content']
-                        result['length'] = content_data['length']
-                        result['url'] = final_url
-                        result['fetch_type'] = 'playwright'
-
-                except Exception as e:
-                    result['error'] = str(e)
-                finally:
-                    # 确保页面关闭
-                    if page:
-                        try:
-                            page.close()
-                        except:
-                            pass
-
-            elif HAS_REQUESTS:
-                # 静态抓取
-                try:
-                    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0 Safari/537.36'}
-                    resp = requests.get(url, headers=headers, timeout=15, allow_redirects=True)
-
-                    # 修复编码问题
-                    if resp.encoding is None or resp.encoding.lower() == 'iso-8859-1':
-                        content_type = resp.headers.get('content-type', '')
-                        charset_match = re.search(r'charset=([^\s;]+)', content_type, re.IGNORECASE)
-                        if charset_match:
-                            resp.encoding = charset_match.group(1)
-                        else:
-                            content_bytes = resp.content
-                            meta_match = re.search(r'<meta[^>]+charset=["\']?([^"\'>\s]+)',
-                                                  content_bytes[:1000].decode('utf-8', errors='ignore'),
-                                                  re.IGNORECASE)
-                            if meta_match:
-                                resp.encoding = meta_match.group(1)
-                            else:
-                                resp.encoding = 'utf-8'
-
-                    try:
-                        html = resp.content.decode(resp.encoding or 'utf-8', errors='replace')
-                    except:
-                        html = resp.content.decode('utf-8', errors='replace')
-
-                    content_data = extract_content(html, resp.url)
-                    result['success'] = True
-                    result['title'] = content_data['title']
-                    result['content'] = content_data['content']
-                    result['length'] = content_data['length']
-                    result['url'] = resp.url
-                    result['fetch_type'] = 'static'
-
-                except Exception as e:
-                    result['error'] = str(e)
-
-            else:
-                result['error'] = 'Playwright和requests均未安装'
-
-            # 保存为Markdown
-            if result['success'] and save_dir:
-                save_result_to_markdown(result, save_dir)
-
-            results.append(result)
-
-    finally:
-        if browser:
-            close_browser(browser, keep_running=True)
-
-    return results
+    return list(results)
 
 
-def save_result_to_markdown(result, save_dir):
-    """将抓取结果保存为Markdown文件
+# ============ 同步包装（供命令行使用） ============
 
-    Args:
-        result: 抓取结果dict
-        save_dir: 保存目录
+def fetch_url(url, timeout=30000, wait_time=2):
+    """抓取单个URL（同步包装）"""
+    return asyncio.run(fetch_url_async(url, timeout, wait_time))
 
-    Returns:
-        str: 保存的文件路径
-    """
-    if not result.get('success') or not result.get('content'):
-        return None
 
-    os.makedirs(save_dir, exist_ok=True)
+def fetch_urls(urls, save_dir=None, timeout=30000, workers=4):
+    """批量抓取URL（同步包装）"""
+    return asyncio.run(fetch_urls_async(urls, save_dir, timeout, workers))
 
-    # 生成文件名
-    title = result.get('title', 'untitled')
-    safe_title = re.sub(r'[\\/:*?"<>|]', '_', title)[:50]
-    url_hash = hashlib.md5(result['original_url'].encode()).hexdigest()[:8]
-    filename = f"{safe_title}_{url_hash}.md"
-    filepath = os.path.join(save_dir, filename)
 
-    # 写入文件
-    with open(filepath, 'w', encoding='utf-8') as f:
-        f.write(f"# {title}\n\n")
-        f.write(f"- **URL**: {result.get('url', '')}\n")
-        f.write(f"- **原始URL**: {result['original_url']}\n")
-        f.write(f"- **抓取时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write(f"- **抓取方式**: {result.get('fetch_type', '')}\n")
-        f.write(f"- **内容长度**: {result['length']} 字符\n\n")
-        f.write("---\n\n")
-        f.write("## 正文内容\n\n")
-        f.write(result['content'])
-
-    result['file'] = filepath
-    print(f"已保存: {filepath}", file=sys.stderr)
-    return filepath
-
+# ============ 命令行入口 ============
 
 if __name__ == '__main__':
     import argparse
+    import json
 
-    parser = argparse.ArgumentParser(description='网页抓取工具')
+    parser = argparse.ArgumentParser(description='网页抓取工具（异步版本）')
     parser.add_argument('url', nargs='*', help='要抓取的URL')
     parser.add_argument('-o', '--output', help='保存目录')
+    parser.add_argument('-w', '--workers', type=int, default=2, help='并发数')
     parser.add_argument('--test', action='store_true', help='测试抓取百度')
 
     args = parser.parse_args()
@@ -551,7 +282,7 @@ if __name__ == '__main__':
 
     elif args.url:
         urls = args.url
-        results = fetch_urls(urls, save_dir=args.output)
+        results = fetch_urls(urls, save_dir=args.output, workers=args.workers)
         print(json.dumps(results, ensure_ascii=False, indent=2))
 
     else:

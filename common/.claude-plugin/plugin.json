@@ -1,7 +1,7 @@
 {
   "name": "common",
-  "description": "公共模块：统一Chrome浏览器管理、网页抓取等功能。供其他插件引用。",
-  "version": "1.4.0",
+  "description": "公共模块：异步Chrome管理、网页抓取、内容解析、Markdown生成。模块化设计，供其他插件引用。",
+  "version": "2.2.0",
   "author": {
     "name": "sjerold",
     "url": "https://github.com/sjerold"

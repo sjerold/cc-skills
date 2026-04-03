@@ -1,39 +1,77 @@
 # Common 插件
 
-公共模块，提供统一的Chrome浏览器管理和网页抓取功能，供其他插件引用。
+公共模块，提供统一的Chrome浏览器管理、网页抓取、内容解析、Markdown生成功能，供其他插件引用。
+
+## 模块结构
+
+```
+scripts/
+├── chrome_manager.py    # Chrome浏览器管理（异步API）
+├── web_fetcher.py       # 网页抓取（异步API）
+├── content_parser.py    # 网页内容解析（纯函数）
+└── markdown_writer.py   # Markdown文件生成（纯函数）
+```
 
 ## 功能
 
 ### chrome_manager.py
 
-统一的Chrome调试模式连接和启动管理。
-
-**核心逻辑**：
-1. 所有插件共用同一个调试端口（9222）
-2. 先检测是否已有调试Chrome运行，有则直接连接
-3. 用户Chrome运行中 → 复制配置启动，共享session/cookie
-4. 无Chrome运行 → 使用用户配置启动
+统一的Chrome调试模式连接和启动管理（异步版本）。
 
 **使用方式**：
 ```python
-from chrome_manager import get_browser, get_page, close_browser
+from chrome_manager import get_browser_async, get_page_async, close_browser_async
 
-browser = get_browser()  # 获取或启动Chrome
-page = get_page(browser)  # 在现有浏览器开新tab
+playwright, browser = await get_browser_async()
+page = await get_page_async(browser, url='https://example.com')
 # ... 操作页面 ...
-close_browser(browser, keep_running=True)  # 断开连接，保持Chrome运行
+await close_browser_async(browser, playwright, keep_running=True)
 ```
 
 ### web_fetcher.py
 
-统一的网页内容抓取。
+统一的网页内容抓取（异步版本）。
 
 **使用方式**：
 ```python
-from web_fetcher import fetch_url, fetch_urls
+from web_fetcher import fetch_url_async, fetch_urls_async
 
-result = fetch_url('https://example.com')
-results = fetch_urls(['url1', 'url2'], save_dir='./output')
+result = await fetch_url_async('https://example.com')
+results = await fetch_urls_async(['url1', 'url2'], save_dir='./output')
+```
+
+### content_parser.py
+
+网页内容解析（纯函数，方便测试和扩展）。
+
+**使用方式**：
+```python
+from content_parser import extract_content, check_anti_crawl, is_redirect_url
+
+content = extract_content(html, url)
+is_blocked = check_anti_crawl(html, url)
+is_redirect = is_redirect_url(url)
+```
+
+**可用函数**：
+- `extract_content(html, url)` - 提取正文内容
+- `check_anti_crawl(html, url)` - 检测反爬/验证码
+- `is_redirect_url(url)` - 检测是否跳转链接
+- `extract_links(html, base_url)` - 提取所有链接
+- `extract_images(html, base_url)` - 提取所有图片
+- `clean_text(text)` - 清理文本
+
+### markdown_writer.py
+
+Markdown文件生成（纯函数）。
+
+**使用方式**：
+```python
+from markdown_writer import save_result_to_markdown, save_search_report, save_summary
+
+filepath = save_result_to_markdown(result, save_dir)
+report_path = save_search_report(query, results, fetched, save_dir, session_id)
+summary_path = save_summary(query, results, md_contents, save_dir, session_id)
 ```
 
 ## 依赖插件
@@ -54,6 +92,29 @@ playwright install chromium
 ```
 
 ## 变更日志
+
+### 2.0.0 (2026-04-03)
+- **全面异步重构**：chrome_manager 和 web_fetcher 全部使用 async_playwright
+- **简化代码结构**：移除 threading workaround，直接使用 asyncio.run()
+- **EPIPE修复**：CDP连接不调用 browser.close()/playwright.stop()，避免断开外部Chrome时出错
+- **页面追踪**：添加 pages_opened 列表确保所有页面正确关闭
+- **等待策略优化**：使用 `wait_until="load"` 替代 `domcontentloaded`，等待跳转完成
+- **内容校验**：检查内容长度，过短时标记失败
+- **API变更**：
+  - `get_browser()` → `get_browser_async()` 返回 `(playwright, browser)` 元组
+  - `get_page()` → `get_page_async()`
+  - `close_browser()` → `close_browser_async()`
+  - `fetch_url()` → `fetch_url_async()`
+  - `fetch_urls()` → `fetch_urls_async()`
+  - 保留同步包装函数供命令行使用
+
+### 1.5.0 (2026-04-03)
+- **异步抓取重构**：使用 asyncio.create_task 正确管理并发任务
+- **EPIPE修复**：CDP连接不调用 browser.close()/playwright.stop()，避免断开外部Chrome时出错
+- **页面追踪**：添加 pages_opened 列表确保所有页面正确关闭
+- **等待策略优化**：使用 `wait_until="load"` 替代 `domcontentloaded`，等待跳转完成
+- **错误输出**：增加详细错误日志，便于排查失败原因
+- **内容校验**：检查内容长度，过短时标记失败
 
 ### 1.4.0 (2026-04-02)
 - **页面关闭修复**：确保每次抓取后关闭页面，避免内存泄漏
