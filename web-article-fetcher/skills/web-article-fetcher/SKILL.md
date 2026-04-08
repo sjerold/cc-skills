@@ -9,15 +9,15 @@ argument-hint: <URL或网站名> [选项]
 
 # 网页文章抓取
 
-一个完整的网页文章抓取解决方案，支持链接发现、内容抓取、Markdown保存和增量更新。
+一个完整的网页文章抓取解决方案，支持链接发现、异步并行抓取、Markdown保存和增量更新。
 
 ## 核心功能
 
 | 功能 | 说明 |
 |-----|------|
 | 链接发现 | 从网页中发现文章链接，智能过滤非文章链接 |
-| 内容抓取 | 使用Playwright渲染动态页面，提取正文 |
-| MD保存 | 按规范命名保存为Markdown文件 |
+| 异步抓取 | 使用 common/web_fetcher 异步并行抓取内容 |
+| MD保存 | 使用 common/markdown_writer 保存文章 |
 | 增量更新 | 基于URL哈希跳过已抓取文章 |
 
 ## 快速开始
@@ -26,8 +26,8 @@ argument-hint: <URL或网站名> [选项]
 # 一键抓取（自动发现链接并抓取文章）
 cmd //c "call conda activate dsbot_env && python $PLUGIN_DIR/scripts/fetcher.py https://www.mpaypass.com.cn/"
 
-# 指定抓取数量
-cmd //c "call conda activate dsbot_env && python $PLUGIN_DIR/scripts/fetcher.py https://www.mpaypass.com.cn/ -n 30"
+# 指定抓取数量和并发数
+cmd //c "call conda activate dsbot_env && python $PLUGIN_DIR/scripts/fetcher.py https://www.mpaypass.com.cn/ -n 30 -w 4"
 ```
 
 ## 命令参数
@@ -36,12 +36,11 @@ cmd //c "call conda activate dsbot_env && python $PLUGIN_DIR/scripts/fetcher.py 
 python fetcher.py <URL> [选项]
 
 参数:
-  <URL>              源页面URL（首页或栏目页）
+  <URL>              源页面URL（首页或栏目页），支持多个URL直接抓取
   -n, --limit        最大抓取数量 (默认20)
   -o, --output       保存目录 (默认 ~/Downloads/web_article_fetcher)
+  -w, --workers      并发数 (默认4)
   --full             全量抓取（忽略增量状态）
-  --show-browser     显示浏览器窗口（用于处理验证码）
-  --close            关闭Chrome进程
   --json             输出JSON格式
 ```
 
@@ -51,17 +50,20 @@ python fetcher.py <URL> [选项]
 # 默认抓取：发现链接并抓取20篇文章
 python fetcher.py https://www.mpaypass.com.cn/
 
-# 抓取50篇文章
-python fetcher.py https://www.mpaypass.com.cn/ -n 50
+# 抓取50篇文章，并发数6
+python fetcher.py https://www.mpaypass.com.cn/ -n 50 -w 6
 
-# 全量重新抓取（忽略已抓取状态）
+# 全量重新抓取
 python fetcher.py https://www.mpaypass.com.cn/ --full
 
 # 指定保存目录
 python fetcher.py https://www.mpaypass.com.cn/ -o ./my_articles
 
-# 显示浏览器（处理验证码）
-python fetcher.py https://www.mpaypass.com.cn/ --show-browser
+# JSON输出
+python fetcher.py https://www.mpaypass.com.cn/ --json
+
+# 直接抓取多个URL（跳过链接发现）
+python fetcher.py https://example.com/a.html https://example.com/b.html
 ```
 
 ## 输出文件结构
@@ -70,16 +72,16 @@ python fetcher.py https://www.mpaypass.com.cn/ --show-browser
 
 ```
 web_article_fetcher/
-├── mpaypass_数字人民币试点扩展_20260330_143052.md  # 抓取的文章
-├── mpaypass_支付行业发展趋势_20260330_143053.md
-├── ...
-├── .fetched_urls.json                              # 增量状态文件
-└── 抓取报告_20260330_143052.md                      # 抓取报告
+├── mpaypass/                      # 站点子目录
+│   ├── 数字人民币试点扩展_xxx.md  # 抓取的文章
+│   └── 支付行业发展趋势_xxx.md
+├── .fetched_urls.json             # 增量状态文件
+└── 抓取报告_20260408_xxx.md       # 抓取报告
 ```
 
 ### 文件说明
 
-- **文章文件**: 命名规则 `{来源}_{标题}_{时间戳}.md`
+- **文章文件**: 保存在站点子目录下，命名规则 `{标题}_{时间戳}_{URL哈希}.md`
 - **状态文件**: `.fetched_urls.json`，记录已抓取URL，用于增量更新
 - **抓取报告**: 包含统计信息、成功/失败列表
 
@@ -88,9 +90,10 @@ web_article_fetcher/
 ```markdown
 # 数字人民币试点扩展
 
-- **来源**: 移动支付网
 - **URL**: https://www.mpaypass.com.cn/news/123
-- **抓取时间**: 2026-03-30 14:30:52
+- **原始URL**: https://www.mpaypass.com.cn/news/123
+- **抓取时间**: 2026-04-08 14:30:52
+- **抓取方式**: playwright_async
 - **内容长度**: 2500 字符
 
 ---
@@ -112,36 +115,31 @@ web_article_fetcher/
 
 ```
 用户输入URL
-      |
-      v
+      ↓
 +-----------------+
 |   链接发现      |
 | 发现文章链接    |
 | 过滤非文章链接  |
 +-----------------+
-      |
-      v
+      ↓
 +-----------------+
 |   增量过滤      |
 | URL哈希检查     |
 | 跳过已抓取      |
 +-----------------+
-      |
-      v
+      ↓
 +-----------------+
-|   内容抓取      |
-| Playwright渲染  |
-| 正文提取        |
+| 异步并行抓取    |
+| 使用 web_fetcher|
+| 并发处理URL     |
 +-----------------+
-      |
-      v
+      ↓
 +-----------------+
 |   MD保存        |
-| 规范命名        |
+| 站点子目录      |
 | 元信息嵌入      |
 +-----------------+
-      |
-      v
+      ↓
 +-----------------+
 |   抓取报告      |
 | 统计成功/失败   |
@@ -149,43 +147,28 @@ web_article_fetcher/
 +-----------------+
 ```
 
-## 环境配置
+## 依赖模块
 
-### 使用 Miniconda + dsbot_env（推荐）
+本插件依赖 `common` 模块的组件：
 
-```bash
-# 1. 创建虚拟环境
-conda create -n dsbot_env python=3.10 -y
-conda activate dsbot_env
-
-# 2. 安装依赖
-pip install -r requirements.txt
-
-# 3. 安装 Playwright 浏览器
-playwright install chromium
-```
-
-### 运行命令
-
-```bash
-# 使用 dsbot_env 环境
-cmd //c "call conda activate dsbot_env && python $PLUGIN_DIR/scripts/fetcher.py https://www.mpaypass.com.cn/"
-```
-
-## 反爬处理
-
-遇到验证码时的处理策略：
-
-1. 检测到反爬会自动提示
-2. 使用 `--show-browser` 显示浏览器窗口
-3. 手动完成验证码后继续抓取
-4. 使用 `--close` 关闭浏览器
+| 组件 | 用途 |
+|------|------|
+| chrome_manager | 获取源页面原始HTML |
+| web_fetcher | 异步并行抓取网页内容 |
+| content_parser | 内容解析、反爬检测 |
+| markdown_writer | 文章保存为Markdown |
 
 ## 站点适配
 
 预设支持的站点：
 
-| 站点 | 链接特征 | 正文选择器 |
-|------|---------|-----------|
-| mpaypass.com.cn | /news/, /article/ | .news-content, .article-body |
-| 其他站点 | 自动识别 | 智能选择器 |
+| 站点 | 链接特征 | 别名 |
+|------|---------|------|
+| mpaypass.com.cn | /news/, /article/ | 移动支付网 |
+| 36kr.com | /p/ | 36氪 |
+
+## 反爬处理
+
+- 自动检测反爬/验证码页面
+- 使用 Chrome CDP 连接复用登录状态
+- 标记失败文章便于重试
