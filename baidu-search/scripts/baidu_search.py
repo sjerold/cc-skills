@@ -56,6 +56,17 @@ try:
 except ImportError:
     HAS_BS4 = False
 
+# 导入评分器
+try:
+    from scorer import calculate_quality_score
+except ImportError:
+    _scorer_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'scorer.py')
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("scorer", _scorer_path)
+    scorer_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(scorer_module)
+    calculate_quality_score = scorer_module.calculate_quality_score
+
 
 # ============ 配置 ============
 
@@ -81,78 +92,6 @@ def get_session_dir(base_dir=None, session_id=None):
     os.makedirs(session_dir, exist_ok=True)
 
     return session_dir, session_id
-
-
-def calculate_quality_score(result):
-    """根据URL和标题计算质量分数"""
-    url = result.get('url', '').lower()
-    title = result.get('title', '').lower()
-    abstract = result.get('abstract', '').lower()
-
-    base_score = 1.0
-
-    # 应用下载类链接 (× 0.1) - 跳过
-    app_download_patterns = [
-        'app下载', 'app官方', '应用下载', '软件下载',
-        '安卓版下载', '手机app', '安装包', '官方下载',
-        'sj.qq.com', 'appdetail', '32r.com', 'duote.com',
-        '多多软件', '华军软件', '应用宝官网', '应用宝下载',
-        '无病毒', '免广告骚扰', '通过应用宝',
-        'play.google.com', 'google play', 'app store',
-    ]
-    for pattern in app_download_patterns:
-        if pattern in url or pattern in title or pattern in abstract:
-            return base_score * 0.1
-
-    # 官方文档/开源项目 (× 2.5)
-    official_patterns = ['python.org', 'github.com', 'gitee.com', 'pypi.org',
-                        'readthedocs', 'docs.', 'developer.', 'documentation']
-    for pattern in official_patterns:
-        if pattern in url:
-            return base_score * 2.5
-
-    # 官方机构 (× 1.8)
-    gov_patterns = ['.gov.cn', '.edu.cn', 'gov.cn', 'edu.cn']
-    for pattern in gov_patterns:
-        if pattern in url:
-            return base_score * 1.8
-
-    # 技术社区 (× 1.4~2.3)
-    tech_community = {
-        'stackoverflow.com': 2.3,
-        'csdn.net': 1.8,
-        'juejin.cn': 1.9,
-        'zhihu.com': 1.6,
-        'segmentfault.com': 1.8,
-        'infoq.cn': 2.0,
-        'jb51.net': 1.4,
-        'w3cschool': 1.7,
-        'runoob.com': 1.7,
-    }
-    for domain, multiplier in tech_community.items():
-        if domain in url:
-            return base_score * multiplier
-
-    # 企业官网 (× 2.0)
-    enterprise_patterns = ['.com.cn', '官方网站', '官网']
-    for pattern in enterprise_patterns:
-        if pattern in url or pattern in title:
-            return base_score * 2.0
-
-    # 新闻媒体 (× 1.5)
-    news_patterns = ['news.', 'xinwen', 'sina.com', 'qq.com', 'sohu.com',
-                     '163.com', 'ifeng.com', 'people.com.cn', 'xinhua']
-    for pattern in news_patterns:
-        if pattern in url:
-            return base_score * 1.5
-
-    # 低质量内容 (× 0.3)
-    low_quality = ['tieba.baidu.com', 'forum', 'bbs', '贴吧', '灌水']
-    for pattern in low_quality:
-        if pattern in url or pattern in title:
-            return base_score * 0.3
-
-    return base_score
 
 
 async def check_captcha_async(page):
@@ -244,7 +183,7 @@ async def search_async(query, limit=50):
                                 'abstract': (item.select_one('.c-abstract') or item).get_text(strip=True)[:300],
                                 'score': 1.0
                             }
-                            result['score'] = calculate_quality_score(result)
+                            result['score'] = calculate_quality_score(result, query)
                             results.append(result)
 
             if len(results) >= limit:
@@ -304,7 +243,7 @@ async def main_async():
     """异步主函数"""
     parser = argparse.ArgumentParser(description='百度搜索增强版（异步）')
     parser.add_argument('query', nargs='*', help='搜索词')
-    parser.add_argument('-n', '--limit', type=int, default=20, help='搜索结果数量 (默认20)')
+    parser.add_argument('-n', '--limit', type=int, default=50, help='搜索结果数量 (默认20)')
     parser.add_argument('-t', '--top-percent', type=float, default=35, help='按分数筛选前N%%的结果进行抓取 (默认35%%)')
     parser.add_argument('--min-score', type=float, default=1.0, help='最低分数阈值 (默认1.0)')
     parser.add_argument('-o', '--output', help='保存目录')
@@ -328,7 +267,7 @@ async def main_async():
     print(f"保存目录: {session_dir}", file=sys.stderr)
 
     # 搜索（异步）
-    limit = max(args.limit, 20)
+    limit = max(args.limit, 50)
     results = await search_async(query, limit)
     print(f"找到 {len(results)} 条结果", file=sys.stderr)
 
