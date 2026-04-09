@@ -1,0 +1,360 @@
+# 大唐三公六部 - 讨论流程配置
+# 定义自由讨论的标准流程
+
+name: "自由讨论流程"
+version: "1.1.0"
+
+# 目录命名（新增：支持时间戳归档）
+archive:
+  naming: "{YYYYMMDD}_{topic_keyword}"
+  example: "20260408_数字人民币运营机构扩容"
+  max_keyword_length: 20
+
+# 流程定义
+phases:
+  # Phase D1: 议题确认
+  - id: "D1_agenda"
+    name: "议题确认"
+    agent: "tang-dynasty:fang-xuanling"
+    role: "太师府房玄龄"
+    task: |
+      你是太师府房玄龄，负责议题确认和拆分。
+
+      原始议题: {topic}
+
+      请执行：
+      1. 议题确认：核心问题是什么
+      2. 议题拆分：拆分成3-5个独立子议题
+      3. 讨论框架：确定讨论维度
+
+      输出格式：
+      ```markdown
+      ## 【议题确认】
+      **核心问题**: ...
+      **子议题拆分**: ...
+      **讨论框架**: ...
+      ```
+    output_to_user: true
+    save_to: "{archive_dir}/agenda.md"
+
+  # Phase D2: 信息收集
+  - id: "D2_info_collection"
+    name: "信息收集"
+    agent: "tang-dynasty:li-jing"
+    role: "兵部李靖"
+    task: |
+      你是兵部李靖，负责信息收集。
+
+      议题: {topic}
+
+      请执行：
+      1. 使用百度搜索/文件搜索收集相关信息
+      2. 提取关键发现
+      3. 建立共享信息池
+
+      输出格式：
+      ```markdown
+      ## 【兵部李靖】信息收集报告
+      **使用技能**: [baidu-search / file-searcher]
+      **关键发现**: ...
+      ```
+    output_to_user: true
+    save_to: "{archive_dir}/shared-pool.md"
+
+  # Phase D3: 第一轮发言
+  - id: "D3_round1"
+    name: "第一轮发言"
+    speakers:
+      - id: "speaker_liu_yan"
+        agent: "tang-dynasty:liu-yan"
+        role: "户部刘晏"
+        stance: "成本效益分析"
+        task: |
+          你是户部刘晏，从成本效益角度发言。
+
+          议题: {topic}
+          共享信息: {shared_pool}
+
+          要求：
+          1. 明确立场（支持/反对/有条件支持/中立）
+          2. 3个论据支撑
+          3. 【重要】列出需补充信息（如有）
+
+          输出格式：
+          ```markdown
+          ## 【户部刘晏】发言
+          **立场**: ...
+          **观点**: ...
+          **论据**: ...
+          **需补充信息**:
+          1. ...
+          2. ...
+          ```
+        output_to_user: true
+
+      - id: "speaker_di_renjie"
+        agent: "tang-dynasty:di-renjie"
+        role: "刑部狄仁杰"
+        stance: "风险合规审视"
+        task: |
+          你是刑部狄仁杰，从风险合规角度发言。
+
+          议题: {topic}
+          共享信息: {shared_pool}
+
+          要求：
+          1. 明确立场
+          2. 指出潜在风险
+          3. 【重要】列出需补充信息（如有）
+
+          输出格式：
+          ```markdown
+          ## 【刑部狄仁杰】发言
+          **立场**: ...
+          **风险分析**: ...
+          **需补充信息**:
+          1. ...
+          ```
+        output_to_user: true
+
+      - id: "speaker_yan_lijian"
+        agent: "tang-dynasty:yan-lijian"
+        role: "工部阎立德"
+        stance: "技术实现分析"
+        task: |
+          你是工部阎立德，从技术实现角度发言。
+
+          议题: {topic}
+          共享信息: {shared_pool}
+
+          要求：
+          1. 明确立场
+          2. 技术可行性分析
+          3. 【重要】列出需补充信息（如有）
+
+          输出格式：
+          ```markdown
+          ## 【工部阎立德】发言
+          **立场**: ...
+          **技术分析**: ...
+          **需补充信息**:
+          1. ...
+          ```
+        output_to_user: true
+
+      - id: "speaker_li_jing"
+        agent: "tang-dynasty:li-jing"
+        role: "兵部李靖"
+        stance: "执行落地分析"
+        task: |
+          你是兵部李靖，从执行落地角度发言。
+
+          议题: {topic}
+          共享信息: {shared_pool}
+
+          要求：
+          1. 明确立场
+          2. 执行可行性分析
+          3. 【重要】列出需补充信息（如有）
+
+          输出格式：
+          ```markdown
+          ## 【兵部李靖】发言
+          **立场**: ...
+          **执行分析**: ...
+          **需补充信息**:
+          1. ...
+          ```
+        output_to_user: true
+
+  # Phase D3.5: 补充信息处理（新增）
+  - id: "D3_5_supplement"
+    name: "补充信息处理"
+    agent: "tang-dynasty:li-jing"
+    role: "兵部李靖"
+    task: |
+      你是兵部李靖，负责处理大臣提出的补充信息需求。
+
+      ## 任务
+      1. 汇总所有大臣提出的"需补充信息"
+      2. 判断每条信息的可获取性
+      3. 执行补充搜索（可获取部分）
+      4. 标记待获取信息（不可获取部分）
+
+      ## 信息需求汇总
+      {info_requests}
+
+      ## 输出格式
+      ```markdown
+      ## 【Phase D3.5】补充信息处理报告
+
+      ### 一、信息需求汇总
+      | 提出者 | 信息需求 | 优先级 |
+      |--------|---------|--------|
+      | 户部刘晏 | ... | 高/中/低 |
+
+      ### 二、已获取补充信息
+      | 信息需求 | 提出者 | 获取方式 | 关键发现 |
+      |---------|--------|---------|---------|
+      | ... | ... | 百度搜索 | ... |
+
+      ### 三、待获取信息（标记）
+      | 信息需求 | 提出者 | 原因 | 建议 |
+      |---------|--------|------|------|
+      | ... | ... | 未公开 | 待官方披露 |
+
+      ---
+      已更新共享池，供后续发言参考。
+      ```
+    output_to_user: true
+    save_to: "{archive_dir}/supplement-report.md"
+
+  # Phase D4: 战略总结
+  - id: "D4_summary"
+    name: "战略总结"
+    agent: "tang-dynasty:fang-xuanling"
+    role: "太师府房玄龄"
+    task: |
+      你是太师府房玄龄，负责战略总结。
+
+      议题: {topic}
+      所有发言: {all_speeches}
+      补充信息报告: {supplement_report}
+
+      要求：
+      1. 总结各方观点的核心共识与分歧
+      2. 从战略高度给出最终判断
+      3. 如有共识，提出决议草案
+
+      输出格式：
+      ```markdown
+      ## 【太师房玄龄】战略总结发言
+      **立场**: ...
+      **观点**: ...
+      **共识决议建议**: ...
+      ```
+    output_to_user: true
+    save_to: "{archive_dir}/conclusion.md"
+
+  # Phase D5: 共识决议
+  - id: "D5_consensus"
+    name: "共识决议"
+    task: |
+      汇总各方立场，形成最终决议。
+
+      共识判定规则：
+      - 全员支持或有条件支持: 直接通过
+      - 反对≤1人: 视为基本共识，主持人裁决通过
+      - 反对≤2人且有合理理由: 主持人可裁决，记录反对意见
+      - 反对≥3人: 继续讨论或提交用户裁决
+    output_to_user: true
+    save_to: "{archive_dir}/decisions.md"
+
+  # Phase D6: 生成完整会议纪要
+  - id: "D6_complete_minutes"
+    name: "生成完整会议纪要"
+    agent: "tang-dynasty:he-zhizhang"
+    role: "礼部贺知章"
+    task: |
+      你是礼部贺知章，负责生成完整会议纪要。
+
+      ## 【核心要求】
+      1. 必须包含所有大臣的完整发言原文，不得省略任何内容
+      2. 必须包含补充信息处理报告（Phase D3.5）
+      3. 必须包含所有"需补充信息"及处理结果
+      4. 字数不做人为压缩，通常在5000-10000字
+
+      ## 输入信息
+      - 议题: {topic}
+      - 时间: {time}
+      - 归档目录: {archive_dir}
+      - 所有发言原文: {all_speeches_full}
+      - 补充信息处理报告: {supplement_report}
+      - 共享信息池: {shared_pool}
+      - 共识判定: {consensus_result}
+
+      ## 【禁止行为】
+      - ❌ 禁止省略任何发言内容
+      - ❌ 禁止压缩论据和数据
+      - ❌ 禁止只输出摘要
+      - ❌ 禁止删除论证过程
+
+      ## 输出格式
+      参考 SKILL.md 中的"会议纪要完整格式模板"
+    output_to_user: true
+    save_to: "{archive_dir}/complete-summary.md"
+
+# 状态追踪
+state_tracking:
+  enabled: true
+  save_path: "{archive_dir}/state.json"
+  fields:
+    - topic
+    - archive_dir
+    - current_phase
+    - current_speaker
+    - completed_phases
+    - start_time
+    - end_time
+    - status
+    - info_requests        # 新增：补充信息需求列表
+    - supplement_completed # 新增：补充搜索完成状态
+
+# 输出控制
+output:
+  realtime_display: true
+  format: "markdown"
+  include_agent_name: true
+
+# 会议纪要文件
+minutes:
+  enabled: true
+  archive_dir: "workspace/meeting-minutes/{YYYYMMDD}_{topic_keyword}/"
+  files:
+    state: "state.json"
+    agenda: "agenda.md"
+    speakers_log: "speakers-log.md"
+    shared_pool: "shared-pool.md"
+    info_requests: "info-requests.md"           # 新增
+    supplement_report: "supplement-report.md"   # 新增
+    conclusion: "conclusion.md"
+    decisions: "decisions.md"
+    action_items: "action-items.md"
+    complete_summary: "complete-summary.md"
+
+# 补充信息处理配置（新增）
+supplement_handling:
+  phase: "D3.5"
+  agent: "tang-dynasty:li-jing"
+  sources:
+    - name: "百度搜索"
+      skill: "baidu-search"
+      for: "外网公开信息"
+    - name: "文件搜索"
+      skill: "file-searcher"
+      for: "本地已有资料"
+  marking_rules:
+    - condition: "未公开的政策细节"
+      mark: "待官方披露"
+    - condition: "内部保密数据"
+      mark: "需权限获取"
+    - condition: "未来规划信息"
+      mark: "待进一步研究"
+
+# 完整纪要生成要求
+complete_minutes_requirements:
+  phase: "D6"
+  agent: "tang-dynasty:he-zhizhang"
+  must_include:
+    - "所有大臣发言完整原文（无省略）"
+    - "所有需补充信息列表"
+    - "补充信息处理报告完整内容"
+    - "所有论据和数据引用（无压缩）"
+    - "所有论证过程（完整保留）"
+    - "共享信息池全部关键发现"
+  forbidden_actions:
+    - "省略发言内容"
+    - "压缩论据数据"
+    - "只输出摘要"
+    - "删除论证过程"
+  expected_length: "5000-10000字"
