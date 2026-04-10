@@ -10,12 +10,12 @@ argument-hint: "[--history N|--sync|--board|--name <名称>|--token <token>]"
 
 ## 安装配置
 
-**修改路径**: 编辑 `hooks/run_token_display.sh`：
+插件启用后自动生效。
+
+**可选**: 如果系统 `python` 不在 PATH 中，修改 `hooks/run_token_display.sh`：
 
 ```bash
-PYTHON_PATH="C:/Users/你的用户名/miniconda3/envs/dsbot_env/python.exe"
-SCRIPT_PATH="C:/Users/你的用户名/.claude/plugins/token-usage/scripts/token_usage.py"
-LOG_FILE="C:/Users/你的用户名/.claude/token-stats.log"
+PYTHON_PATH="你的Python路径"  # 如：/path/to/python.exe
 ```
 
 **首次使用排行榜**: 运行 `--sync` 时会提示输入 GitHub Token

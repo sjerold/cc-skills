@@ -10,12 +10,12 @@ Claude Code Token 用量统计插件 v1.4.0
 
 ## 安装
 
-修改 `hooks/run_token_display.sh` 中的路径：
+插件启用后自动生效。
+
+**可选**: 如果 Python 路径不同，修改 `hooks/run_token_display.sh`：
 
 ```bash
-PYTHON_PATH="你的Python路径"
-SCRIPT_PATH="你的插件路径/scripts/token_usage.py"
-LOG_FILE="你的日志路径/token-stats.log"
+PYTHON_PATH=~/miniconda3/envs/你的环境/python.exe
 ```
 
 ## 使用

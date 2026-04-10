@@ -1,5 +1,5 @@
 {
-  "description": "Token usage display hook that logs session and today stats after task completion",
+  "description": "Token usage Stop Hook - log stats and auto-sync to leaderboard",
   "hooks": {
     "Stop": [
       {
