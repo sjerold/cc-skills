@@ -1,6 +1,6 @@
 {
   "name": "token-usage",
-  "version": "1.4.2",
+  "version": "1.4.3",
   "description": "Token usage statistics plugin for Claude Code. Track your token usage by day/week/month, sync to leaderboard, auto-sync via Stop Hook.",
   "author": {
     "name": "sjerold",
@@ -9,6 +9,5 @@
   "repository": "https://github.com/sjerold/cc-skills.git",
   "license": "MIT",
   "keywords": ["token", "usage", "statistics", "tracking", "claude-code", "leaderboard"],
-  "skills": ["./skills/token-usage"],
-  "hooks": "./hooks/hooks.json"
+  "skills": ["./skills/token-usage"]
 }

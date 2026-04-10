@@ -12,10 +12,10 @@ argument-hint: "[--history N|--sync|--board|--name <名称>|--token <token>]"
 
 插件启用后自动生效。
 
-**可选**: 如果系统 `python` 不在 PATH 中，修改 `hooks/run_token_display.sh`：
+**可选**: 如果 Python 路径不同，修改 `hooks/run_token_display.sh`：
 
 ```bash
-PYTHON_PATH="你的Python路径"  # 如：/path/to/python.exe
+PYTHON_PATH=~/miniconda3/envs/你的环境/python.exe
 ```
 
 **首次使用排行榜**: 运行 `--sync` 时会提示输入 GitHub Token

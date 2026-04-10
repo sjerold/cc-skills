@@ -470,12 +470,11 @@ def main():
     import argparse
 
     p = argparse.ArgumentParser(description='Token Usage Statistics')
-    p.add_argument('--today', action='store_true', help='今日统计')
     p.add_argument('--history', type=int, metavar='N', help='最近N天历史')
     p.add_argument('--sync', action='store_true', help='上传数据')
     p.add_argument('--board', action='store_true', help='排行榜')
-    p.add_argument('--month-board', action='store_true', help='本月排行')
-    p.add_argument('--today-board', action='store_true', help='今日排行')
+    p.add_argument('--today', action='store_true', help='今日排行/统计')
+    p.add_argument('--month', action='store_true', help='本月排行')
     p.add_argument('--name', type=str, help='设置用户名')
     p.add_argument('--token', type=str, help='设置 Token')
     p.add_argument('--hook', action='store_true', help='Stop Hook')
@@ -490,13 +489,15 @@ def main():
     elif args.sync:
         sync_up(quiet=args.quiet)
     elif args.board:
-        period = datetime.now().strftime('%Y-%m') if args.month_board else None
-        period = datetime.now().strftime('%Y-%m-%d') if args.today_board else period
+        period = datetime.now().strftime('%Y-%m') if args.month else None
+        period = datetime.now().strftime('%Y-%m-%d') if args.today else period
         show_board(period)
     elif args.history:
         show_history(args.history)
     elif args.hook:
         hook_output()
+    elif args.today:
+        show_today()
     else:
         show_today()
 
