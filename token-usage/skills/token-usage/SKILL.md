@@ -1,50 +1,55 @@
 ---
 name: token-usage
-description: 统计和显示Claude Code的Token使用情况。使用/token-usage查看统计。
-argument-hint: "[--week|--month|--all]"
+description: 统计Claude Code的Token使用情况，支持排行榜同步。使用/token-usage查看统计，/token-usage --sync同步排行榜。
+argument-hint: "[--history N|--sync|--board|--name <名称>|--token <token>]"
 ---
 
 # Token用量统计
 
-统计Claude Code的Token使用情况，支持按天、周、月查看。
+统计Claude Code的Token使用情况，支持按天查看历史，以及排行榜同步。
+
+## 安装配置
+
+**修改路径**: 编辑 `hooks/run_token_display.sh`：
+
+```bash
+PYTHON_PATH="C:/Users/你的用户名/miniconda3/envs/dsbot_env/python.exe"
+SCRIPT_PATH="C:/Users/你的用户名/.claude/plugins/token-usage/scripts/token_usage.py"
+LOG_FILE="C:/Users/你的用户名/.claude/token-stats.log"
+```
+
+**首次使用排行榜**: 运行 `--sync` 时会提示输入 GitHub Token
 
 ## 使用方法
 
-```bash
-/token-usage           # 显示今日统计
-/token-usage --week    # 显示本周统计
-/token-usage --month   # 显示本月统计
-/token-usage --all     # 显示所有历史统计
-```
-
-## 统计维度
-
-- **API调用次数**: API请求的总次数
-- **输入Token (Input)**: 用户输入和上下文的Token数量
-- **输出Token (Output)**: AI响应的Token数量
-- **总计 (Total)**: 输入和输出的总和
-
-## 数据来源
-
-从 `~/.claude/projects/` 目录下的会话日志文件中读取真实使用数据。
-
-## 示例输出
-
-```
-  ==========================================================
-  |                 Token Usage Statistics                 |
-  +==========================================================+
-  |  Period: Today                                          |
-  +==========================================================+
-  |  API Calls:                 125                         |
-  |  Input Tokens:        125,430                           |
-  |  Output Tokens:        45,678                           |
-  |  Total Tokens:        171,108                           |
-  +==========================================================+
-```
-
-## 执行脚本
+### 本地统计
 
 ```bash
-/c/Users/admin/miniconda3/envs/dsbot_env/python.exe "$PLUGIN_DIR/scripts/token_usage.py" $ARGUMENTS
+/token-usage              # 今日统计
+/token-usage --history 7  # 最近7天历史
 ```
+
+### 排行榜功能
+
+```bash
+/token-usage --sync          # 上传数据（首次会提示输入Token）
+/token-usage --board         # 总排行榜
+/token-usage --board --month # 本月排行
+/token-usage --board --today # 今日排行
+/token-usage --name "名字"   # 设置显示名称
+```
+
+## 数据存储
+
+**配置目录**: `~/.claude/token-usage/`（独立于插件，更安全）
+
+```
+~/.claude/token-usage/
+├── config.json   # 用户配置
+├── .token        # GitHub Token（权限600）
+└── .cache/       # Git 缓存
+```
+
+## Stop Hook
+
+每次对话结束自动记录到 `~/.claude/token-stats.log`

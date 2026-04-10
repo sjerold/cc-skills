@@ -1,76 +1,54 @@
 # Token Usage Plugin
 
-Claude Code 的 Token 用量统计插件。
+Claude Code Token 用量统计插件 v1.3.0
 
 ## 功能
 
-- 统计 API 调用次数
-- 统计输入/输出 Token 数量
-- 支持按天、周、月查看
-- 支持 `--days N` 查看最近N天统计
-- 命令行美观输出
+- 本地统计：今日/历史
+- 排行榜同步：GitHub 仓库
+- Stop Hook：自动记录日志
 
 ## 安装
 
-将插件目录放置到 `~/.claude/plugins/token-usage/`
+修改 `hooks/run_token_display.sh` 中的路径：
+
+```bash
+PYTHON_PATH="你的Python路径"
+SCRIPT_PATH="你的插件路径/scripts/token_usage.py"
+LOG_FILE="你的日志路径/token-stats.log"
+```
 
 ## 使用
 
 ```bash
-/token-usage           # 显示今日统计
-/token-usage --week    # 显示本周统计
-/token-usage --month   # 显示本月统计
-/token-usage --all     # 显示所有历史统计
-/token-usage --days 14 # 显示最近14天统计
+/token-usage              # 今日统计
+/token-usage --history 7  # 最近7天
+/token-usage --sync       # 同步到排行榜
+/token-usage --board      # 显示排行榜
+/token-usage --name "名字" # 设置名称
 ```
 
-## 示例输出
+## 数据存储
+
+配置独立存储在 `~/.claude/token-usage/`：
 
 ```
-  ==========================================================
-  |                 Token Usage Statistics                 |
-  +==========================================================+
-  |  Period: Today                                          |
-  +==========================================================+
-  |  Date: 2026-04-02                                       |
-  |  API Calls:                1,263                      |
-  |  Input Tokens:        97,775,648                      |
-  |  Output Tokens:          176,110                      |
-  |  Total Tokens:        97,951,758                      |
-  +----------------------------------------------------------+
-  |  Date: 2026-04-01                                       |
-  |  API Calls:                  162                      |
-  |  Input Tokens:        12,022,716                      |
-  |  Output Tokens:           31,884                      |
-  |  Total Tokens:        12,054,600                      |
-  +==========================================================+
-  |  TOTALS                                                  |
-  |  API Calls:                1,425                      |
-  |  Input Tokens:       109,798,364                      |
-  |  Output Tokens:          207,994                      |
-  |  Total Tokens:       110,006,358                      |
-  +==========================================================+
+~/.claude/token-usage/
+├── config.json   # 用户配置
+├── .token        # GitHub Token
+└── .cache/       # Git 缓存
 ```
 
-## 依赖
+**安全性**：Token 文件权限 600，仅用户可读。
 
-- Python 3.6+
-- 无外部依赖（使用 Python 标准库）
+## Token 获取
 
-## 数据来源
+1. https://github.com/settings/tokens/new
+2. 选择 "Fine-grained token"
+3. 仓库: sjerold/token-board
+4. 权限: Contents (Read and Write)
 
-从 `~/.claude/projects/` 目录下的 JSONL 会话日志文件读取真实使用数据。
-
-## 变更日志
-
-### 1.1.0 (2026-04-02)
-- 新增 `--days N` 参数，支持查看最近N天用量
-- 多日期间显示日期标签
-- 修复时区比较问题
-
-### 1.0.0
-- 初始版本
-- 支持按天、周、月统计
+首次 `--sync` 时会提示输入 Token。
 
 ## License
 

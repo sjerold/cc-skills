@@ -1,302 +1,497 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-Token Usage Statistics for Claude Code
+Token Usage Plugin for Claude Code
+统计 Token 用量，支持排行榜同步
 
-Reads JSONL log files from ~/.claude/projects/ and aggregates token usage data.
+配置目录: ~/.claude/token-usage/ (与插件代码分离)
 """
 
 import json
+import socket
+import uuid
+import subprocess
 import os
-import argparse
-from datetime import datetime, timedelta
+import sys
+import io
+import getpass
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from collections import defaultdict
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
+
+if sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
+# ============================================================================
+# 配置路径（独立于插件目录，提高安全性）
+# ============================================================================
+CONFIG_DIR = Path.home() / ".claude" / "token-usage"
+CONFIG_FILE = CONFIG_DIR / "config.json"
+TOKEN_FILE = CONFIG_DIR / ".token"  # 隐藏文件
+CACHE_DIR = CONFIG_DIR / ".cache"
+
+REPO_URL = "https://github.com/sjerold/token-board.git"
+REPO_BRANCH = "main"
 
 
-def get_claude_projects_dir() -> Path:
-    """Get the Claude projects directory path."""
-    home = Path.home()
-    return home / ".claude" / "projects"
+def ensure_config_dir():
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def find_jsonl_files() -> List[Path]:
-    """Find all JSONL log files in the Claude projects directory."""
-    projects_dir = get_claude_projects_dir()
-    if not projects_dir.exists():
-        return []
+# ============================================================================
+# 用户配置
+# ============================================================================
+def load_config() -> Dict:
+    ensure_config_dir()
+    if CONFIG_FILE.exists():
+        try:
+            return json.loads(CONFIG_FILE.read_text(encoding='utf-8'))
+        except:
+            pass
+    return {}
 
-    jsonl_files = []
-    for project_dir in projects_dir.iterdir():
-        if project_dir.is_dir():
-            for file in project_dir.glob("*.jsonl"):
-                jsonl_files.append(file)
-    return jsonl_files
+
+def save_config(cfg: Dict):
+    ensure_config_dir()
+    CONFIG_FILE.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding='utf-8')
 
 
-def parse_usage_data(file_path: Path) -> List[Dict]:
-    """
-    Parse usage data from a JSONL file.
+def get_user_id() -> str:
+    cfg = load_config()
+    if 'user_id' not in cfg:
+        cfg['user_id'] = uuid.uuid4().hex[:12]
+        save_config(cfg)
+    return cfg['user_id']
 
-    Returns a list of dicts with keys: timestamp, input_tokens, output_tokens
-    """
-    usage_records = []
 
+def get_user_name() -> str:
+    return load_config().get('user_name', socket.gethostname())
+
+
+def set_user_name(name: str):
+    cfg = load_config()
+    cfg['user_name'] = name
+    save_config(cfg)
+    print(f"✅ 用户名称: {name}")
+
+
+# ============================================================================
+# Token 管理（安全存储）
+# ============================================================================
+def get_token() -> str:
+    """获取 Token"""
+    if TOKEN_FILE.exists():
+        return TOKEN_FILE.read_text(encoding='utf-8').strip()
+    return ""
+
+
+def set_token(token: str):
+    """保存 Token（设置权限）"""
+    ensure_config_dir()
+    TOKEN_FILE.write_text(token.strip(), encoding='utf-8')
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-
-                try:
-                    data = json.loads(line)
-
-                    # Only process assistant messages with usage data
-                    if data.get('type') == 'assistant':
-                        message = data.get('message', {})
-                        usage = message.get('usage', {})
-
-                        if usage:
-                            timestamp_str = data.get('timestamp', '')
-                            if timestamp_str:
-                                # Parse ISO format timestamp
-                                timestamp = datetime.fromisoformat(
-                                    timestamp_str.replace('Z', '+00:00')
-                                )
-
-                                usage_records.append({
-                                    'timestamp': timestamp,
-                                    'input_tokens': usage.get('input_tokens', 0),
-                                    'output_tokens': usage.get('output_tokens', 0)
-                                })
-                except (json.JSONDecodeError, ValueError):
-                    # Skip malformed lines
-                    continue
-    except Exception as e:
-        print(f"Warning: Error reading {file_path}: {e}")
-
-    return usage_records
+        os.chmod(TOKEN_FILE, 0o600)  # 仅用户可读写
+    except:
+        pass
+    print("✅ Token 已保存")
 
 
-def aggregate_by_period(records: List[Dict], period: str) -> Dict[str, Dict]:
-    """
-    Aggregate usage data by time period.
-
-    Args:
-        records: List of usage records
-        period: 'day', 'week', 'month', or 'all'
-
-    Returns:
-        Dict mapping period key to aggregated data
-    """
-    aggregated = defaultdict(lambda: {'input': 0, 'output': 0, 'calls': 0})
-
-    for record in records:
-        ts = record['timestamp']
-
-        if period == 'day':
-            key = ts.strftime('%Y-%m-%d')
-        elif period == 'week':
-            # Get the Monday of the week
-            monday = ts - timedelta(days=ts.weekday())
-            key = f"Week of {monday.strftime('%Y-%m-%d')}"
-        elif period == 'month':
-            key = ts.strftime('%Y-%m')
-        else:  # all
-            key = 'all'
-
-        aggregated[key]['input'] += record['input_tokens']
-        aggregated[key]['output'] += record['output_tokens']
-        aggregated[key]['calls'] += 1
-
-    return dict(aggregated)
+def prompt_token():
+    """交互式输入 Token"""
+    print("\n🔑 需要配置 GitHub Token 才能使用排行榜功能")
+    print("   获取方式: https://github.com/settings/tokens/new")
+    print("   权限: Contents (Read and Write)")
+    print()
+    token = getpass.getpass("请输入 GitHub Token: ").strip()
+    if token:
+        set_token(token)
+        return token
+    return None
 
 
-def get_period_filter(period: str) -> Tuple[datetime, datetime]:
-    """
-    Get start and end datetime for a period filter.
-
-    Returns:
-        Tuple of (start_datetime, end_datetime)
-    """
-    now = datetime.now()
-
-    if period == 'day':
-        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        end = now
-    elif period == 'week':
-        # Start from Monday of current week
-        start = (now - timedelta(days=now.weekday())).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
-        end = now
-    elif period == 'month':
-        start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        end = now
-    else:  # all
-        start = datetime.min
-        end = now
-
-    return start, end
+def ensure_token() -> str:
+    """确保有 Token"""
+    token = get_token()
+    if not token:
+        token = prompt_token()
+    return token
 
 
-def format_number(num: int) -> str:
-    """Format a number with thousand separators."""
-    return f"{num:,}"
+# ============================================================================
+# 数据统计
+# ============================================================================
+def get_projects_dir() -> Path:
+    return Path.home() / ".claude" / "projects"
 
 
-def print_report(data: Dict[str, Dict], period: str, filter_current: bool = True):
-    """
-    Print a formatted usage report.
+def get_daily_stats() -> Dict:
+    """获取按日期分组的统计"""
+    projects_dir = get_projects_dir()
+    if not projects_dir.exists():
+        return {'daily': {}, 'total': {'input_tokens': 0, 'output_tokens': 0, 'calls': 0, 'total_tokens': 0}}
 
-    Args:
-        data: Aggregated usage data
-        period: The time period type
-        filter_current: Whether to show only current period
-    """
-    if not data:
-        print("\n  No usage data found for the specified period.\n")
-        return
+    daily = {}
+    total_input, total_output, total_calls = 0, 0, 0
 
-    # Get current period key if filtering
-    if filter_current and period != 'all':
-        now = datetime.now()
-        if period == 'day':
-            current_key = now.strftime('%Y-%m-%d')
-        elif period == 'week':
-            monday = now - timedelta(days=now.weekday())
-            current_key = f"Week of {monday.strftime('%Y-%m-%d')}"
-        else:  # month
-            current_key = now.strftime('%Y-%m')
+    for project_dir in projects_dir.iterdir():
+        if not project_dir.is_dir():
+            continue
+        for jsonl_file in project_dir.glob("*.jsonl"):
+            try:
+                with open(jsonl_file, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            data = json.loads(line)
+                            if data.get('type') == 'assistant':
+                                usage = data.get('message', {}).get('usage', {})
+                                ts = data.get('timestamp', '')
+                                if usage and ts:
+                                    try:
+                                        t = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                                        date_key = t.strftime('%Y-%m-%d')
+                                        inp = usage.get('input_tokens', 0)
+                                        out = usage.get('output_tokens', 0)
 
-        # Filter to show only current period
-        data = {k: v for k, v in data.items() if k == current_key}
+                                        if date_key not in daily:
+                                            daily[date_key] = {'input': 0, 'output': 0, 'calls': 0}
+                                        daily[date_key]['input'] += inp
+                                        daily[date_key]['output'] += out
+                                        daily[date_key]['calls'] += 1
 
-    # Sort by key (date)
-    sorted_keys = sorted(data.keys(), reverse=True)
+                                        total_input += inp
+                                        total_output += out
+                                        total_calls += 1
+                                    except:
+                                        pass
+                        except json.JSONDecodeError:
+                            pass
+            except:
+                pass
 
-    # Calculate totals
-    total_input = sum(d['input'] for d in data.values())
-    total_output = sum(d['output'] for d in data.values())
-    total_calls = sum(d['calls'] for d in data.values())
-    total_all = total_input + total_output
-
-    # Print header
-    period_names = {
-        'day': 'Today',
-        'week': 'This Week',
-        'month': 'This Month',
-        'all': 'All Time'
+    return {
+        'daily': daily,
+        'total': {
+            'input_tokens': total_input,
+            'output_tokens': total_output,
+            'calls': total_calls,
+            'total_tokens': total_input + total_output
+        }
     }
 
-    period_display = period_names.get(period, period.title())
+
+def fmt_tokens(n: int) -> str:
+    if n >= 1000000:
+        return f"{n/1000000:.1f}M"
+    elif n >= 1000:
+        return f"{n/1000:.0f}K"
+    return str(n)
+
+
+# ============================================================================
+# 本地显示
+# ============================================================================
+def show_today():
+    stats = get_daily_stats()
+    today = datetime.now().strftime('%Y-%m-%d')
+    d = stats['daily'].get(today, {'input': 0, 'output': 0, 'calls': 0})
+    total = d['input'] + d['output']
 
     print()
-    print("  " + "=" * 58)
-    print(f"  |{'Token Usage Statistics':^56}|")
-    print("  +" + "=" * 58 + "+")
-    print(f"  |  Period: {period_display:<47}|")
-    print("  +" + "=" * 58 + "+")
-
-    # Print each period's data
-    for key in sorted_keys:
-        d = data[key]
-        total = d['input'] + d['output']
-        # Show date key for all periods when multiple entries
-        if len(sorted_keys) > 1 or period == 'all':
-            print(f"  |  Date: {key:<49}|")
-        print(f"  |  API Calls:      {format_number(d['calls']):>15}                      |")
-        print(f"  |  Input Tokens:   {format_number(d['input']):>15}                      |")
-        print(f"  |  Output Tokens:  {format_number(d['output']):>15}                      |")
-        print(f"  |  Total Tokens:   {format_number(total):>15}                      |")
-        if len(sorted_keys) > 1:
-            print("  +" + "-" * 58 + "+")
-
-    # Print totals if multiple periods
-    if len(sorted_keys) > 1:
-        print("  +" + "=" * 58 + "+")
-        print(f"  |  {'TOTALS':<20}                                    |")
-        print(f"  |  API Calls:      {format_number(total_calls):>15}                      |")
-        print(f"  |  Input Tokens:   {format_number(total_input):>15}                      |")
-        print(f"  |  Output Tokens:  {format_number(total_output):>15}                      |")
-        print(f"  |  Total Tokens:   {format_number(total_all):>15}                      |")
-
-    print("  +" + "=" * 58 + "+")
+    print("📊 今日统计")
+    print("-" * 40)
+    print(f"  输入: {fmt_tokens(d['input'])} tokens")
+    print(f"  输出: {fmt_tokens(d['output'])} tokens")
+    print(f"  总计: {fmt_tokens(total)} tokens ({d['calls']}次)")
     print()
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description='Token Usage Statistics for Claude Code'
-    )
-    parser.add_argument(
-        '--week',
-        action='store_true',
-        help='Show statistics for the current week'
-    )
-    parser.add_argument(
-        '--month',
-        action='store_true',
-        help='Show statistics for the current month'
-    )
-    parser.add_argument(
-        '--all',
-        action='store_true',
-        help='Show all historical statistics'
-    )
-    parser.add_argument(
-        '--days',
-        type=int,
-        default=None,
-        help='Show statistics for the last N days (e.g., --days 14 for last 2 weeks)'
-    )
+def show_history(days: int = 7):
+    stats = get_daily_stats()
+    daily = stats['daily']
+    sorted_days = sorted(daily.keys(), reverse=True)[:days]
 
-    args = parser.parse_args()
+    print()
+    print(f"📊 最近 {days} 天统计")
+    print("-" * 50)
 
-    # Determine period
-    if args.all:
-        period = 'all'
-    elif args.week:
-        period = 'week'
-    elif args.month:
-        period = 'month'
-    elif args.days:
-        period = 'day'
+    for date in sorted_days:
+        d = daily[date]
+        tokens = d['input'] + d['output']
+        print(f"  {date}  {fmt_tokens(tokens):>8} tokens ({d['calls']}次)")
+
+    print("-" * 50)
+    t = stats['total']
+    print(f"  总计      {fmt_tokens(t['total_tokens']):>8} tokens ({t['calls']}次)")
+    print()
+
+
+# ============================================================================
+# Hook 输出
+# ============================================================================
+def hook_output():
+    """Stop Hook: 输出到日志"""
+    projects_dir = get_projects_dir()
+    if not projects_dir.exists():
+        return
+
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=30)
+    today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+
+    s_inp, s_out, s_calls = 0, 0, 0  # 本次
+    t_inp, t_out, t_calls = 0, 0, 0  # 今日
+
+    for project_dir in projects_dir.iterdir():
+        if not project_dir.is_dir():
+            continue
+        for jsonl_file in project_dir.glob("*.jsonl"):
+            try:
+                with open(jsonl_file, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            data = json.loads(line)
+                            if data.get('type') == 'assistant':
+                                usage = data.get('message', {}).get('usage', {})
+                                ts = data.get('timestamp', '')
+                                if usage and ts:
+                                    try:
+                                        t = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                                        inp = usage.get('input_tokens', 0)
+                                        out = usage.get('output_tokens', 0)
+
+                                        if t >= cutoff:
+                                            s_inp += inp
+                                            s_out += out
+                                            s_calls += 1
+                                        if t.strftime('%Y-%m-%d') == today:
+                                            t_inp += inp
+                                            t_out += out
+                                            t_calls += 1
+                                    except:
+                                        pass
+                        except json.JSONDecodeError:
+                            pass
+            except:
+                pass
+
+    print(f"📊 本次: {fmt_tokens(s_inp+s_out)} tokens ({s_calls}次) │ 今日: {fmt_tokens(t_inp+t_out)} tokens ({t_calls}次)")
+
+
+# ============================================================================
+# Git 同步
+# ============================================================================
+def run_git(args: List[str], cwd: Path = None) -> Tuple[int, str, str]:
+    cmd = ["git"] + args
+    try:
+        r = subprocess.run(cmd, cwd=cwd or CACHE_DIR, capture_output=True, text=True, timeout=60)
+        return r.returncode, r.stdout, r.stderr
+    except Exception as e:
+        return -1, "", str(e)
+
+
+def sync_up():
+    """上传数据"""
+    token = ensure_token()
+    if not token:
+        return False
+
+    token_url = REPO_URL.replace("https://", f"https://{token}@")
+    user_id = get_user_id()
+    user_name = get_user_name()
+
+    stats = get_daily_stats()
+    user_data = {
+        "user_id": user_id,
+        "user_name": user_name,
+        "machine_name": socket.gethostname(),
+        "total": stats['total'],
+        "daily": stats['daily'],
+        "updated_at": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+    }
+
+    # 克隆或更新仓库
+    if not CACHE_DIR.exists():
+        print("📥 克隆仓库...")
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        code, _, err = run_git(["clone", "-b", REPO_BRANCH, token_url, "."], CACHE_DIR)
+        if code != 0:
+            print(f"❌ 克隆失败: {err}")
+            return False
     else:
-        period = 'day'
+        print("📥 更新仓库...")
+        run_git(["remote", "set-url", "origin", token_url])
+        run_git(["fetch", "origin"])
+        code, _, _ = run_git(["rebase", f"origin/{REPO_BRANCH}"])
+        if code != 0:
+            run_git(["rebase", "--abort"])
+            run_git(["reset", "--hard", f"origin/{REPO_BRANCH}"])
 
-    # Find and parse all JSONL files
-    jsonl_files = find_jsonl_files()
+    # 合并历史数据
+    data_file = CACHE_DIR / "data" / f"{user_id}.json"
+    data_file.parent.mkdir(parents=True, exist_ok=True)
 
-    if not jsonl_files:
-        print("\n  No Claude Code session logs found.")
-        print(f"  Expected location: {get_claude_projects_dir()}\n")
+    if data_file.exists():
+        try:
+            existing = json.loads(data_file.read_text(encoding='utf-8'))
+            for date, d in existing.get('daily', {}).items():
+                if date not in user_data['daily']:
+                    user_data['daily'][date] = d
+            user_data['daily'] = dict(sorted(user_data['daily'].items()))
+        except:
+            pass
+
+    data_file.write_text(json.dumps(user_data, ensure_ascii=False, indent=2), encoding='utf-8')
+
+    # 提交推送
+    run_git(["config", "user.email", "token-usage@local"])
+    run_git(["config", "user.name", "token-usage"])
+    run_git(["add", str(data_file)])
+    run_git(["commit", "-m", f"Token usage {datetime.now():%Y-%m-%d}: {user_name}"])
+
+    print("📤 推送数据...")
+    code, _, err = run_git(["push", "origin", REPO_BRANCH])
+
+    if code == 0:
+        print(f"✅ 同步成功! {fmt_tokens(stats['total']['total_tokens'])} tokens ({stats['total']['calls']}次)")
+        return True
+    else:
+        print(f"❌ 推送失败: {err}")
+        return False
+
+
+def sync_down() -> List[Dict]:
+    """拉取所有用户数据"""
+    token = get_token()
+    if not token:
+        return []
+
+    token_url = REPO_URL.replace("https://", f"https://{token}@")
+
+    if not CACHE_DIR.exists():
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        code, _, _ = run_git(["clone", "--depth", "1", "-b", REPO_BRANCH, token_url, "."], CACHE_DIR)
+        if code != 0:
+            return []
+    else:
+        run_git(["remote", "set-url", "origin", token_url])
+        run_git(["fetch", "origin"])
+        run_git(["reset", "--hard", f"origin/{REPO_BRANCH}"])
+
+    data_dir = CACHE_DIR / "data"
+    all_data = []
+    if data_dir.exists():
+        for f in data_dir.glob("*.json"):
+            try:
+                all_data.append(json.loads(f.read_text(encoding='utf-8')))
+            except:
+                pass
+    return all_data
+
+
+def show_board(period: str = None):
+    """显示排行榜"""
+    all_data = sync_down()
+    if not all_data:
+        print("\n⚠️ 暂无数据，请先 --sync\n")
         return
 
-    # Collect all usage records
-    all_records = []
-    for jsonl_file in jsonl_files:
-        records = parse_usage_data(jsonl_file)
-        all_records.extend(records)
+    user_id = get_user_id()
+    board = []
 
-    if not all_records:
-        print("\n  No usage data found in session logs.\n")
-        return
+    for data in all_data:
+        if period:
+            daily = data.get('daily', {})
+            if period in daily:
+                d = daily[period]
+                board.append({
+                    "user_id": data.get("user_id"),
+                    "user_name": data.get("user_name", "匿名"),
+                    "total_tokens": d['input'] + d['output'],
+                    "total_calls": d['calls']
+                })
+            elif len(period) == 7:  # 月份
+                mt, mc = 0, 0
+                for date, d in daily.items():
+                    if date.startswith(period):
+                        mt += d['input'] + d['output']
+                        mc += d['calls']
+                if mt > 0:
+                    board.append({
+                        "user_id": data.get("user_id"),
+                        "user_name": data.get("user_name", "匿名"),
+                        "total_tokens": mt,
+                        "total_calls": mc
+                    })
+        else:
+            t = data.get('total', {})
+            board.append({
+                "user_id": data.get("user_id"),
+                "user_name": data.get("user_name", "匿名"),
+                "total_tokens": t.get('total_tokens', 0),
+                "total_calls": t.get('calls', 0)
+            })
 
-    # Filter by date range if --days specified
-    if args.days:
-        from datetime import timezone
-        now = datetime.now(timezone.utc)
-        start_date = now - timedelta(days=args.days)
-        all_records = [r for r in all_records if r['timestamp'] >= start_date]
+    board.sort(key=lambda x: x["total_tokens"], reverse=True)
+    for i, e in enumerate(board):
+        e["rank"] = i + 1
 
-    # Aggregate data
-    aggregated = aggregate_by_period(all_records, period)
+    print()
+    print(f"🏆 Token排行榜 ({period or '全部'})")
 
-    # Print report
-    filter_current = period != 'all' and args.days is None
-    print_report(aggregated, period, filter_current)
+    my_rank = None
+    for e in board[:10]:
+        is_me = " ← 你" if e["user_id"] == user_id else ""
+        if is_me:
+            my_rank = e
+        print(f"  #{e['rank']} {e['user_name']:<12} {fmt_tokens(e['total_tokens']):>8} tokens ({e['total_calls']}次){is_me}")
+
+    if my_rank and my_rank["rank"] > 10:
+        print(f"  ...")
+        print(f"  #{my_rank['rank']} {my_rank['user_name']:<12} {fmt_tokens(my_rank['total_tokens']):>8} tokens ({my_rank['total_calls']}次) ← 你")
+
+    print()
+
+
+# ============================================================================
+# 主入口
+# ============================================================================
+def main():
+    import argparse
+
+    p = argparse.ArgumentParser(description='Token Usage Statistics')
+    p.add_argument('--today', action='store_true', help='今日统计')
+    p.add_argument('--history', type=int, metavar='N', help='最近N天历史')
+    p.add_argument('--sync', action='store_true', help='上传数据')
+    p.add_argument('--board', action='store_true', help='排行榜')
+    p.add_argument('--month-board', action='store_true', help='本月排行')
+    p.add_argument('--today-board', action='store_true', help='今日排行')
+    p.add_argument('--name', type=str, help='设置用户名')
+    p.add_argument('--token', type=str, help='设置 Token')
+    p.add_argument('--hook', action='store_true', help='Stop Hook')
+
+    args = p.parse_args()
+
+    if args.token:
+        set_token(args.token)
+    elif args.name is not None:
+        set_user_name(args.name)
+    elif args.sync:
+        sync_up()
+    elif args.board:
+        period = datetime.now().strftime('%Y-%m') if args.month_board else None
+        period = datetime.now().strftime('%Y-%m-%d') if args.today_board else period
+        show_board(period)
+    elif args.history:
+        show_history(args.history)
+    elif args.hook:
+        hook_output()
+    else:
+        show_today()
 
 
 if __name__ == '__main__':

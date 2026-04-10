@@ -1,0 +1,15 @@
+{
+  "description": "Token usage display hook that logs session and today stats after task completion",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/run_token_display.sh\""
+          }
+        ]
+      }
+    ]
+  }
+}
