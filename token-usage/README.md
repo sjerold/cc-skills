@@ -1,6 +1,6 @@
 # Token Usage Plugin
 
-Claude Code Token 用量统计插件 v1.4.0
+Claude Code Token 用量统计插件 v1.4.2
 
 ## 功能
 
