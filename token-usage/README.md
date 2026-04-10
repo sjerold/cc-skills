@@ -1,12 +1,12 @@
 # Token Usage Plugin
 
-Claude Code Token 用量统计插件 v1.3.0
+Claude Code Token 用量统计插件 v1.4.0
 
 ## 功能
 
 - 本地统计：今日/历史
 - 排行榜同步：GitHub 仓库
-- Stop Hook：自动记录日志
+- Stop Hook：自动记录日志 + 自动同步
 
 ## 安装
 
@@ -23,10 +23,16 @@ LOG_FILE="你的日志路径/token-stats.log"
 ```bash
 /token-usage              # 今日统计
 /token-usage --history 7  # 最近7天
-/token-usage --sync       # 同步到排行榜
+/token-usage --sync       # 手动同步到排行榜
 /token-usage --board      # 显示排行榜
 /token-usage --name "名字" # 设置名称
 ```
+
+## 自动同步
+
+Stop Hook 会在每次对话结束时：
+1. 记录统计到 `~/.claude/token-stats.log`
+2. 后台静默同步到排行榜（无需手动 `--sync`）
 
 ## 数据存储
 

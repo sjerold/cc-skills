@@ -294,9 +294,9 @@ def run_git(args: List[str], cwd: Path = None) -> Tuple[int, str, str]:
         return -1, "", str(e)
 
 
-def sync_up():
+def sync_up(quiet: bool = False):
     """上传数据"""
-    token = ensure_token()
+    token = ensure_token() if not quiet else get_token()
     if not token:
         return False
 
@@ -316,14 +316,17 @@ def sync_up():
 
     # 克隆或更新仓库
     if not CACHE_DIR.exists():
-        print("📥 克隆仓库...")
+        if not quiet:
+            print("📥 克隆仓库...")
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
         code, _, err = run_git(["clone", "-b", REPO_BRANCH, token_url, "."], CACHE_DIR)
         if code != 0:
-            print(f"❌ 克隆失败: {err}")
+            if not quiet:
+                print(f"❌ 克隆失败: {err}")
             return False
     else:
-        print("📥 更新仓库...")
+        if not quiet:
+            print("📥 更新仓库...")
         run_git(["remote", "set-url", "origin", token_url])
         run_git(["fetch", "origin"])
         code, _, _ = run_git(["rebase", f"origin/{REPO_BRANCH}"])
@@ -353,14 +356,17 @@ def sync_up():
     run_git(["add", str(data_file)])
     run_git(["commit", "-m", f"Token usage {datetime.now():%Y-%m-%d}: {user_name}"])
 
-    print("📤 推送数据...")
+    if not quiet:
+        print("📤 推送数据...")
     code, _, err = run_git(["push", "origin", REPO_BRANCH])
 
     if code == 0:
-        print(f"✅ 同步成功! {fmt_tokens(stats['total']['total_tokens'])} tokens ({stats['total']['calls']}次)")
+        if not quiet:
+            print(f"✅ 同步成功! {fmt_tokens(stats['total']['total_tokens'])} tokens ({stats['total']['calls']}次)")
         return True
     else:
-        print(f"❌ 推送失败: {err}")
+        if not quiet:
+            print(f"❌ 推送失败: {err}")
         return False
 
 
@@ -473,6 +479,7 @@ def main():
     p.add_argument('--name', type=str, help='设置用户名')
     p.add_argument('--token', type=str, help='设置 Token')
     p.add_argument('--hook', action='store_true', help='Stop Hook')
+    p.add_argument('--quiet', action='store_true', help='静默模式')
 
     args = p.parse_args()
 
@@ -481,7 +488,7 @@ def main():
     elif args.name is not None:
         set_user_name(args.name)
     elif args.sync:
-        sync_up()
+        sync_up(quiet=args.quiet)
     elif args.board:
         period = datetime.now().strftime('%Y-%m') if args.month_board else None
         period = datetime.now().strftime('%Y-%m-%d') if args.today_board else period

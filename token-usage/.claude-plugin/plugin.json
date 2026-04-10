@@ -1,7 +1,7 @@
 {
   "name": "token-usage",
-  "version": "1.3.0",
-  "description": "Token usage statistics plugin for Claude Code. Track your token usage by day/week/month, sync to leaderboard, auto-log via Stop Hook.",
+  "version": "1.4.0",
+  "description": "Token usage statistics plugin for Claude Code. Track your token usage by day/week/month, sync to leaderboard, auto-sync via Stop Hook.",
   "author": {
     "name": "sjerold",
     "url": "https://github.com/sjerold"
