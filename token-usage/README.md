@@ -1,6 +1,6 @@
 # Token Usage Plugin
 
-Claude Code Token 用量统计插件 v1.4.3
+Claude Code Token 用量统计插件 v1.4.4
 
 ## 功能
 
@@ -22,13 +22,21 @@ PYTHON_PATH=~/miniconda3/envs/你的环境/python.exe
 
 ```bash
 /token-usage                 # 今日统计
-/token-usage --history 7     # 最近7天
+/token-usage --history 7     # 最近7天历史
 /token-usage --sync          # 同步到排行榜
 /token-usage --board         # 总排行榜
 /token-usage --board --today # 今日排行
 /token-usage --board --month # 本月排行
 /token-usage --name "名字"    # 设置名称
 ```
+
+### 过去7天每日排行榜
+
+```bash
+python ~/.claude/plugins/token-usage/scripts/daily_board.py
+```
+
+显示过去7天每天的用户排行榜，按日期分组展示。
 
 ## 自动同步
 
