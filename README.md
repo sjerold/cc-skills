@@ -71,7 +71,7 @@
 /gongwen-writer 写一份关于xxx的通知
 ```
 
-### 衔风搜索 (xianfeng-search) v1.1.0
+### 衔风 (xianfeng-search) v1.5.0
 
 飞书云文档智能搜索工具，支持私有化部署版本。
 
@@ -84,13 +84,13 @@
 
 ```bash
 # 扫描目录
-衔风搜索 扫描 https://your-feishu.com/drive/folder/xxx
+衔风 扫描 https://your-feishu.com/drive/folder/xxx
 
 # 缓存文档（扫描+抓取）
-衔风搜索 缓存 https://your-feishu.com/drive/folder/xxx
+衔风 缓存 https://your-feishu.com/drive/folder/xxx
 
 # 搜索文档
-衔风搜索 搜索 关键词
+衔风 搜索 关键词
 ```
 
 ### 大唐三公六部系统 (tang-dynasty) v1.0.0

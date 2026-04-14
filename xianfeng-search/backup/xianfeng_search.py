@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-衔风搜索 - CLI入口
+衔风 - CLI入口
 
 工作流程:
 1. 扫描: 打开浏览器 → 遍历目录 → 保存文档树JSON
@@ -30,12 +30,13 @@ from operations import (
     search_online,
     fetch_content,
     debug_page_structure,
+    export_docx,
 )
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description='衔风搜索 - 飞书云文档智能搜索工具',
+        description='衔风 - 飞书云文档智能搜索工具',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog='''
 命令示例:
@@ -48,6 +49,9 @@ def main():
   搜索本地缓存:
     xianfeng_search.py <关键词>
 
+  导出为Word:
+    xianfeng_search.py 导出 --url <文档URL>
+
   显示缓存状态:
     xianfeng_search.py --status
 
@@ -55,7 +59,7 @@ def main():
         '''
     )
 
-    parser.add_argument('command', nargs='?', choices=['扫描', '缓存', '搜索'], help='命令: 扫描/缓存/搜索')
+    parser.add_argument('command', nargs='?', choices=['扫描', '缓存', '搜索', '导出'], help='命令: 扫描/缓存/搜索/导出')
     parser.add_argument('keyword', nargs='?', help='搜索关键词')
     parser.add_argument('--url', '-u', help='飞书URL')
     parser.add_argument('--status', action='store_true', help='显示缓存状态')
@@ -65,6 +69,7 @@ def main():
     parser.add_argument('-n', '--limit', type=int, default=DEFAULT_RESULT_LIMIT, help='限制结果数量')
     parser.add_argument('--show-browser', action='store_true', help='显示浏览器')
     parser.add_argument('--json', action='store_true', help='JSON输出')
+    parser.add_argument('--output', '-o', help='导出输出目录')
 
     args = parser.parse_args()
 
@@ -76,6 +81,7 @@ def main():
         'limit': args.limit,
         'show_browser': args.show_browser,
         'json': args.json,
+        'output_dir': args.output,
     }
 
     # 显示缓存状态
@@ -135,6 +141,14 @@ def main():
             print("错误: 缓存需要指定 --url", file=sys.stderr)
             return
         _do_cache(args.url, options)
+        return
+
+    # 导出文档为 Word
+    if args.command == '导出':
+        if not args.url:
+            print("错误: 导出需要指定 --url", file=sys.stderr)
+            return
+        _do_export(args.url, options)
         return
 
     # 搜索
@@ -282,6 +296,41 @@ def _do_search(keyword: str, url: str, options: dict):
     print("\n" + "=" * 60)
     print(f"缓存目录: {CACHE_DIR}")
     print("=" * 60)
+
+
+def _do_export(url: str, options: dict):
+    """执行导出"""
+    # 构建文档对象
+    doc = {
+        'url': url,
+        'name': '文档',
+    }
+
+    result = export_docx([doc], url, options)
+
+    if options.get('json'):
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return
+
+    # 格式化输出
+    print("\n" + "=" * 60)
+    print("导出结果")
+    print("=" * 60)
+
+    if result.get('success'):
+        exported = result.get('exported', [])
+        if exported:
+            doc = exported[0]
+            print(f"\n导出成功!")
+            print(f"  文件名: {doc.get('file_name')}")
+            print(f"  路径: {doc.get('file_path')}")
+            print(f"  大小: {doc.get('file_size', 0):,} 字节")
+    else:
+        print("\n导出失败")
+        for err in result.get('errors', []):
+            print(f"  错误: {err}")
+
+    print("\n" + "=" * 60)
 
 
 if __name__ == '__main__':

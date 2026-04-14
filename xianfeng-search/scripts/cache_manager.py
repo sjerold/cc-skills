@@ -24,6 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config import (
     CACHE_DIR,
+    JSON_CACHE_DIR,
     CACHE_MAX_AGE_HOURS,
     get_folder_cache_id,
     get_cache_path_for_folder,
@@ -33,6 +34,7 @@ from config import (
 def ensure_cache_dir():
     """确保缓存目录存在"""
     os.makedirs(CACHE_DIR, exist_ok=True)
+    os.makedirs(JSON_CACHE_DIR, exist_ok=True)
 
 
 def get_folder_cache_path(folder_id: str, folder_name: str = '') -> str:
@@ -59,7 +61,7 @@ def get_folder_cache_path(folder_id: str, folder_name: str = '') -> str:
             return existing
         filename = f"{folder_id}.json"
 
-    return os.path.join(CACHE_DIR, filename)
+    return os.path.join(JSON_CACHE_DIR, filename)
 
 
 def find_cache_by_folder_id(folder_id: str) -> Optional[str]:
@@ -72,19 +74,19 @@ def find_cache_by_folder_id(folder_id: str) -> Optional[str]:
     Returns:
         缓存文件路径，不存在返回None
     """
-    if not os.path.exists(CACHE_DIR):
+    if not os.path.exists(JSON_CACHE_DIR):
         return None
 
     # 精确匹配
-    exact_path = os.path.join(CACHE_DIR, f"{folder_id}.json")
+    exact_path = os.path.join(JSON_CACHE_DIR, f"{folder_id}.json")
     if os.path.exists(exact_path):
         return exact_path
 
     # 通过ID后缀匹配（支持 名称-ID.json 格式）
     short_id = folder_id[:8]
-    for filename in os.listdir(CACHE_DIR):
+    for filename in os.listdir(JSON_CACHE_DIR):
         if filename.endswith('.json') and filename.endswith(f"-{short_id}.json"):
-            return os.path.join(CACHE_DIR, filename)
+            return os.path.join(JSON_CACHE_DIR, filename)
 
     return None
 
@@ -377,22 +379,23 @@ def get_all_cache_status() -> Dict:
     """
     status = {
         'cache_dir': CACHE_DIR,
+        'json_cache_dir': JSON_CACHE_DIR,
         'caches': [],
         'total_folders': 0,
         'total_docs': 0
     }
 
-    if not os.path.exists(CACHE_DIR):
+    if not os.path.exists(JSON_CACHE_DIR):
         status['exists'] = False
         return status
 
     status['exists'] = True
 
-    for filename in os.listdir(CACHE_DIR):
+    for filename in os.listdir(JSON_CACHE_DIR):
         if not filename.endswith('.json'):
             continue
 
-        cache_path = os.path.join(CACHE_DIR, filename)
+        cache_path = os.path.join(JSON_CACHE_DIR, filename)
         try:
             with open(cache_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
@@ -432,14 +435,14 @@ def get_all_cached_docs() -> List[Dict]:
     """
     all_docs = []
 
-    if not os.path.exists(CACHE_DIR):
+    if not os.path.exists(JSON_CACHE_DIR):
         return all_docs
 
-    for filename in os.listdir(CACHE_DIR):
+    for filename in os.listdir(JSON_CACHE_DIR):
         if not filename.endswith('.json'):
             continue
 
-        cache_path = os.path.join(CACHE_DIR, filename)
+        cache_path = os.path.join(JSON_CACHE_DIR, filename)
         try:
             with open(cache_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
@@ -467,15 +470,15 @@ def find_folder_info_from_parent_cache(folder_id: str) -> Dict:
     Returns:
         {'folder_name': str, 'folder_path': str} 找不到返回空dict
     """
-    if not os.path.exists(CACHE_DIR):
+    if not os.path.exists(JSON_CACHE_DIR):
         return {}
 
     # 遍历所有缓存文件，查找哪个缓存的children包含当前folder_id
-    for filename in os.listdir(CACHE_DIR):
+    for filename in os.listdir(JSON_CACHE_DIR):
         if not filename.endswith('.json'):
             continue
 
-        cache_path = os.path.join(CACHE_DIR, filename)
+        cache_path = os.path.join(JSON_CACHE_DIR, filename)
         try:
             with open(cache_path, 'r', encoding='utf-8') as f:
                 parent_cache = json.load(f)

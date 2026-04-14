@@ -13,16 +13,15 @@ import sys
 import os
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-# 添加common模块路径
-# 路径: xianfeng-search/scripts/feishu_navigator.py -> plugins/common/scripts
+# 添加脚本目录和common模块路径
 _SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, _SCRIPTS_DIR)
 _PLUGIN_DIR = os.path.dirname(_SCRIPTS_DIR)
 _PLUGINS_DIR = os.path.dirname(_PLUGIN_DIR)
 COMMON_PATH = os.path.join(_PLUGINS_DIR, 'common', 'scripts')
 sys.path.insert(0, COMMON_PATH)
 
+from utils import log
 from config import LOGIN_WAIT_TIMEOUT, PAGE_LOAD_TIMEOUT
 
 # 导入common模块
@@ -38,7 +37,7 @@ try:
     )
     HAS_CHROME_MANAGER = True
 except ImportError as e:
-    print(f"无法导入chrome_manager: {e}", file=sys.stderr)
+    log(f"无法导入chrome_manager: {e}")
     HAS_CHROME_MANAGER = False
     # 备用：使用本地chrome_helper
     from chrome_helper import CHROME_DEBUG_PORT, start_chrome, close_chrome
@@ -85,16 +84,17 @@ class FeishuNavigator:
             raise RuntimeError("Playwright未安装。请运行: pip install playwright")
 
         try:
-            # 使用common模块获取浏览器
+            # 使用common模块获取浏览器（返回 playwright, browser 元组）
+            log(f"  → 正在获取Chrome实例...")
             if HAS_CHROME_MANAGER:
-                self.browser = get_browser(headless=self.headless)
+                self.playwright, self.browser = get_browser(headless=self.headless)
                 if not self.browser:
-                    print("无法连接Chrome", file=sys.stderr)
+                    log(f"  ✗ 无法连接Chrome")
                     return False
             else:
                 # 备用逻辑
                 if not start_chrome(headless=self.headless):
-                    print("Chrome启动失败", file=sys.stderr)
+                    log(f"  ✗ Chrome启动失败")
                     return False
 
                 self.playwright = sync_playwright().start()
@@ -102,11 +102,13 @@ class FeishuNavigator:
                     f'http://127.0.0.1:{CHROME_DEBUG_PORT}'
                 )
 
+            log(f"  ✓ Chrome CDP连接成功")
             self.context = self.browser.contexts[0] if self.browser.contexts else self.browser.new_context()
 
-            # 使用现有页面或创建新页面（在现有浏览器开新tab）
+            # 使用现有页面（复用已打开的tab，避免创建新tab）
+            log(f"  → 获取页面...")
             if HAS_CHROME_MANAGER:
-                self.page = get_page(self.browser, timeout=PAGE_LOAD_TIMEOUT * 1000)
+                self.page = get_existing_page(self.browser, timeout=PAGE_LOAD_TIMEOUT * 1000)
             else:
                 if self.context.pages:
                     self.page = self.context.pages[0]
@@ -120,37 +122,56 @@ class FeishuNavigator:
                     self.page = self.context.new_page()
                     self.page.set_default_timeout(PAGE_LOAD_TIMEOUT * 1000)
 
+            log(f"  ✓ 获取页面成功")
+
             # 导航到目标URL
             navigate_url = target_url if target_url else self.domain
-            print(f"正在打开: {navigate_url}", file=sys.stderr)
+            log(f"  → 导航到: {navigate_url[:60]}...")
 
             try:
                 self.page.goto(navigate_url, timeout=PAGE_LOAD_TIMEOUT * 1000, wait_until="domcontentloaded")
             except Exception as e:
-                print(f"导航超时: {e}, 尝试继续...", file=sys.stderr)
+                log(f"  ! 导航超时: {e}, 尝试继续...")
 
             time.sleep(3)
 
+            # 检查是否被重定向，确保到达目标URL
             final_url = self.page.url
-            print(f"导航后URL: {final_url}", file=sys.stderr)
+            log(f"  → 当前URL: {final_url[:60]}...")
+
+            # 如果URL不包含目标folder_id，强制重新导航（最多3次）
+            if target_url and '/folder/' in target_url:
+                target_folder_id = target_url.split('/folder/')[-1].split('?')[0]
+                retry_count = 0
+                while target_folder_id not in final_url and retry_count < 3:
+                    log(f"  ! 被重定向，重新导航... (尝试 {retry_count + 1}/3)")
+                    try:
+                        self.page.goto(navigate_url, timeout=PAGE_LOAD_TIMEOUT * 1000, wait_until="networkidle")
+                    except:
+                        pass
+                    time.sleep(2)
+                    final_url = self.page.url
+                    log(f"  → 重新导航后URL: {final_url[:60]}...")
+                    retry_count += 1
 
             # 检查是否需要登录
             if self._check_login_required():
+                log(f"  → 需要登录，等待用户操作...")
                 return self._wait_for_login(timeout)
             else:
-                print("已登录", file=sys.stderr)
+                log(f"  ✓ 已登录")
                 return True
 
         except Exception as e:
-            print(f"连接Chrome失败: {e}", file=sys.stderr)
+            log(f"  ✗ 连接Chrome失败: {e}")
             return False
 
     def _wait_for_login(self, timeout: int) -> bool:
         """等待用户登录"""
-        print("\n" + "=" * 50, file=sys.stderr)
-        print("请在Chrome窗口中完成飞书登录...", file=sys.stderr)
-        print(f"等待时间: {timeout}秒 ({timeout//60}分钟)", file=sys.stderr)
-        print("=" * 50 + "\n", file=sys.stderr)
+        log("\n" + "=" * 50)
+        log("请在Chrome窗口中完成飞书登录...")
+        log(f"等待时间: {timeout}秒 ({timeout//60}分钟)")
+        log("=" * 50 + "\n")
 
         start_time = time.time()
 
@@ -165,7 +186,7 @@ class FeishuNavigator:
                     import msvcrt
                     if msvcrt.kbhit():
                         msvcrt.getch()
-                        print("\n用户确认登录完成！", file=sys.stderr)
+                        log("\n用户确认登录完成！")
                         return True
                 except:
                     pass
@@ -175,11 +196,11 @@ class FeishuNavigator:
                 print(f"\r等待登录中... 已等待 {elapsed}秒, 剩余 {remaining}秒  ", end='', file=sys.stderr, flush=True)
 
                 if not self._check_login_required():
-                    print("\n\n登录成功！", file=sys.stderr)
+                    log("\n\n登录成功！")
                     time.sleep(2)
                     return True
 
-        print("\n登录超时", file=sys.stderr)
+        log("\n登录超时")
         return False
 
     def _check_login_required(self) -> bool:
@@ -192,21 +213,21 @@ class FeishuNavigator:
             logged_in = ['/drive/folder', '/docx/', '/wiki/', '/sheet/', '/space/']
             for indicator in logged_in:
                 if indicator in url:
-                    print(f"检测到已登录URL特征: {indicator}", file=sys.stderr)
+                    log(f"检测到已登录URL特征: {indicator}")
                     return False
 
             # 登录特征
             login_indicators = ['/login', '/passport', '/sso', '/authenticate', '登录', '扫码登录']
             for indicator in login_indicators:
                 if indicator in url or indicator in content:
-                    print(f"检测到登录特征: {indicator}", file=sys.stderr)
+                    log(f"检测到登录特征: {indicator}")
                     return True
 
             # 检查用户头像
             try:
                 user_menu = self.page.query_selector('[class*="avatar"], [class*="user"]')
                 if user_menu:
-                    print("检测到用户头像，判断为已登录", file=sys.stderr)
+                    log("检测到用户头像，判断为已登录")
                     return False
             except:
                 pass
@@ -226,7 +247,7 @@ class FeishuNavigator:
     def close(self):
         """断开Chrome连接（保持Chrome运行以复用登录session）"""
         if HAS_CHROME_MANAGER:
-            close_browser(self.browser, keep_running=True)
+            close_browser(self.browser, self.playwright, keep_running=True)
         else:
             try:
                 if self.browser:
@@ -240,7 +261,7 @@ class FeishuNavigator:
             except:
                 pass
 
-            print("已断开Chrome连接（Chrome保持运行，下次可复用登录状态）", file=sys.stderr)
+            log("已断开Chrome连接（Chrome保持运行，下次可复用登录状态）")
 
 
 if __name__ == '__main__':

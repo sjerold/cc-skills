@@ -1,12 +1,12 @@
 ---
 name: xianfeng-search
 description: |
-  衔风搜索：飞书云文档智能搜索。当用户要求搜索飞书文档、衔风云文档时触发。
-  支持目录扫描、本地缓存、快速搜索、内容抓取。
-argument-hint: <搜索关键词> 或 --scan --url <文件夹URL>
+  衔风：飞书云文档智能搜索。当用户要求搜索飞书文档、衔风文档、缓存飞书文档时触发。
+  支持目录扫描、本地缓存、快速搜索、内容抓取、表格下载。
+argument-hint: 缓存 --url <文件夹URL> 或 <搜索关键词>
 ---
 
-# 衔风搜索
+# 衔风
 
 飞书云文档（私有化部署）智能搜索工具。
 
@@ -14,91 +14,68 @@ argument-hint: <搜索关键词> 或 --scan --url <文件夹URL>
 
 | 功能 | 说明 | 命令 |
 |------|------|------|
-| **扫描** | 遍历飞书目录，建立本地缓存(JSON) | `--scan --url <URL>` |
-| **缓存** | 文件名列表缓存，用于快速搜索 | 自动保存到 `~/Downloads/衔风云文档缓存/` |
-| **搜索** | 基于本地缓存快速搜索（秒级） | `<关键词>` |
-| **抓取** | 打开文档，保存为本地MD格式 | `--fetch --url <URL> --docs <ID>` |
-
-## 工作流程
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                                                             │
-│  【扫描 scan】                                               │
-│   打开浏览器 → 遍历飞书目录 → 保存文件名列表到JSON缓存        │
-│                                                             │
-│                          ↓                                  │
-│                                                             │
-│  【缓存 cache】                                              │
-│   ~/Downloads/衔风云文档缓存/                                │
-│   ├── <folder_id>.json     # 文件名列表                      │
-│   └── 文档内容/             # 抓取的MD文件                    │
-│                                                             │
-│                          ↓                                  │
-│                                                             │
-│  【搜索 search】                                             │
-│   读取本地JSON → 匹配文件名 → 返回结果（秒级，无需浏览器）     │
-│                                                             │
-│                          ↓                                  │
-│                                                             │
-│  【抓取 fetch】                                              │
-│   打开文档 → 提取内容 → 保存为MD（跳过PPT、图片等）           │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
+| **扫描** | 遍历飞书目录，建立本地缓存(JSON) | `扫描 --url <URL>` |
+| **缓存** | 扫描+抓取文档内容保存为MD | `缓存 --url <URL>` |
+| **搜索** | 基于本地缓存快速搜索（秒级） | `搜索 <关键词>` |
+| **调试** | 调试页面结构，分析选择器 | `调试 --url <URL>` |
 
 ## 快速开始
 
 ```bash
-# 1. 扫描目录建立缓存
-/c/Users/admin/miniconda3/envs/dsbot_env/python.exe "$PLUGIN_DIR/scripts/xianfeng_search.py" --scan --url "https://your-feishu.com/drive/folder/xxx"
+# 1. 缓存目录（扫描+抓取MD）
+cmd //c "call conda activate dsbot_env && python $PLUGIN_DIR/scripts/xianfeng_search_cli.py 缓存 --url https://your-feishu.com/drive/folder/xxx"
 
 # 2. 搜索文档（秒级返回）
-/c/Users/admin/miniconda3/envs/dsbot_env/python.exe "$PLUGIN_DIR/scripts/xianfeng_search.py" "需求文档"
+cmd //c "call conda activate dsbot_env && python $PLUGIN_DIR/scripts/xianfeng_search_cli.py 搜索 需求文档"
 
-# 3. 抓取内容保存为MD
-/c/Users/admin/miniconda3/envs/dsbot_env/python.exe "$PLUGIN_DIR/scripts/xianfeng_search.py" --fetch --url "https://your-feishu.com" --docs "doc_id1,doc_id2"
+# 3. 查看缓存状态
+cmd //c "call conda activate dsbot_env && python $PLUGIN_DIR/scripts/xianfeng_search_cli.py --status"
 ```
 
 ## 命令参数
 
 ```bash
-python xianfeng_search.py [keyword] [选项]
+python xianfeng_search_cli.py [命令] [选项]
 
-主要功能:
-  keyword              搜索关键词（在本地缓存中搜索）
-  --scan               扫描目录建立缓存
-  --fetch              抓取文档内容保存为MD
+命令:
+  扫描               扫描目录建立JSON缓存
+  缓存               扫描+抓取文档内容保存为MD
+  搜索               在本地缓存中搜索关键词
+  调试               调试页面结构
 
 参数:
-  --url URL            飞书文件夹URL
-  --docs DOCS          要抓取的文档ID（逗号分隔）
-  -n N, --limit N      限制结果数量 (默认: 50)
-  --show-browser       显示浏览器窗口
-  --json               JSON格式输出
+  --url URL          飞书文件夹URL
+  -n N, --limit N    限制结果数量 (默认: 50)
+  --show-browser     显示浏览器窗口
+  --json             JSON格式输出
 
-缓存管理:
-  --cache-status       显示缓存状态
-  --clear-cache        清理所有缓存
+管理选项:
+  --status           显示缓存状态
+  --clear            清理所有缓存
+  --close            关闭Chrome进程
+  --reset            重置登录session
 ```
 
 ## 使用示例
 
 ```bash
-# 扫描指定文件夹
-python xianfeng_search.py --scan --url "https://your-feishu.com/drive/folder/ABC123"
+# 缓存指定文件夹（扫描+抓取内容）
+python xianfeng_search_cli.py 缓存 --url "https://your-feishu.com/drive/folder/ABC123"
+
+# 显示浏览器观察过程
+python xianfeng_search_cli.py 缓存 --url "https://your-feishu.com/drive/folder/ABC123" --show-browser
 
 # 搜索关键词
-python xianfeng_search.py "产品需求"
-
-# 搜索并抓取内容
-python xianfeng_search.py "需求文档" --fetch --url "https://your-feishu.com"
+python xianfeng_search_cli.py 搜索 "产品需求"
 
 # 查看缓存状态
-python xianfeng_search.py --cache-status
+python xianfeng_search_cli.py --status
 
 # 清理缓存
-python xianfeng_search.py --clear-cache
+python xianfeng_search_cli.py --clear
+
+# 重置登录（下次需要重新登录飞书）
+python xianfeng_search_cli.py --reset
 ```
 
 ## 缓存说明
@@ -106,18 +83,21 @@ python xianfeng_search.py --clear-cache
 ### 缓存目录
 ```
 ~/Downloads/衔风云文档缓存/
-├── <folder_id>.json        # 文件名列表缓存
-├── <folder_id2>.json
-└── 文档内容/                # 抓取的MD文件
+├── 目录结构/                  # JSON缓存目录
+│   ├── <folder_id>.json       # 文件名列表
+│   └── <folder_id2>.json
+└── 文档内容/                  # 抓取的MD文件
     ├── 文档标题1_abc123.md
     └── 文档标题2_def456.md
 ```
 
-### 缓存策略
-- **扫描时**: 保存文件名列表到JSON
-- **搜索时**: 读取本地JSON，无需打开浏览器
-- **抓取时**: 下载内容保存为MD文件
-- **有效期**: 7天（可在config.py修改）
+### 支持的文档类型
+
+| 类型 | URL格式 | 支持状态 |
+|------|---------|----------|
+| 飞书文档 | `/docx/xxx` | ✅ 支持 |
+| 飞书表格 | `/sheet/xxx` | ✅ 支持 |
+| Wiki | `/wiki/xxx` | ✅ 支持 |
 
 ### 跳过的文件类型
 抓取时自动跳过以下类型：
@@ -131,12 +111,12 @@ python xianfeng_search.py --clear-cache
 
 ```bash
 # 使用 dsbot_env 环境
-/c/Users/admin/miniconda3/envs/dsbot_env/python.exe "$PLUGIN_DIR/scripts/xianfeng_search.py" ...
+cmd //c "call conda activate dsbot_env && python $PLUGIN_DIR/scripts/xianfeng_search_cli.py ..."
 ```
 
 ## 注意事项
 
 1. **首次使用**: 需要手动完成飞书登录
 2. **搜索速度**: 搜索基于本地缓存，秒级返回
-3. **根目录**: 根目录每次都会重新扫描
-4. **文件夹更新**: 检测修改时间决定是否重新扫描
+3. **Chrome复用**: 使用CDP连接现有Chrome，复用登录状态
+4. **表格支持**: 支持抓取飞书表格内容

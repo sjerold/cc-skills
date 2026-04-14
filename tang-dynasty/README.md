@@ -85,7 +85,7 @@
 |---------|----------|------|
 | 百度搜索 | `baidu-search` | 网络信息检索 |
 | 文件搜索 | `file-searcher` | 本地文件检索 |
-| 衔风搜索 | `xianfeng-search` | 企业知识库搜索 |
+| 衔风 | `xianfeng-search` | 企业知识库搜索 |
 | 公文写作 | `gongwen-writer` | 公文生成 |
 
 ## 安装

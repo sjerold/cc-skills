@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-衔风搜索 - 配置管理
+衔风 - 配置管理
 
 Chrome相关配置在feishu_navigator.py中定义（端口9225，复制Chrome配置启动独立实例）
 """
@@ -27,10 +27,11 @@ ALLOWED_DOMAIN_SUFFIXES = [
 
 # 缓存目录放在Downloads下
 CACHE_DIR = os.path.expanduser("~/Downloads/衔风云文档缓存")
+JSON_CACHE_DIR = os.path.join(CACHE_DIR, "目录结构")  # JSON缓存目录
 CACHE_MAX_AGE_HOURS = 24 * 7  # 缓存有效期（7天）
 
 # MD文件保存目录（抓取的内容）
-CONTENT_DIR = os.path.expanduser("~/Downloads/衔风云文档缓存/文档内容")
+CONTENT_DIR = os.path.join(CACHE_DIR, "文档内容")
 
 # ============ 文件类型过滤 ============
 
@@ -72,6 +73,24 @@ MIN_MATCH_SCORE = 0.3      # 最低匹配分数
 # ============ 输出配置 ============
 
 DEFAULT_OUTPUT_DIR = os.path.expanduser("~/Downloads/xianfeng_search")
+
+# ============ CLI配置 ============
+
+CLI_DESCRIPTION = "衔风 - 飞书文档本地搜索工具"
+CLI_EPILIG = """
+示例:
+  python xianfeng_search_cli.py 扫描 -u https://xxx.feishu.cn/drive/folder/xxx
+  python xianfeng_search_cli.py 缓存 -u https://xxx.feishu.cn/drive/folder/xxx
+  python xianfeng_search_cli.py 搜索 关键词
+  python xianfeng_search_cli.py --status
+"""
+CLI_DEFAULT_LIMIT = 50
+CLI_COMMANDS = {
+    'scan': '扫描',
+    'cache': '缓存',
+    'search': '搜索',
+    'debug': '调试',
+}
 
 # ============ 排除目录 ============
 
@@ -192,7 +211,7 @@ def get_cache_path_for_folder(domain: str, folder_id: str) -> str:
         缓存文件完整路径
     """
     cache_id = get_folder_cache_id(domain, folder_id)
-    return os.path.join(CACHE_DIR, f"{cache_id}.json")
+    return os.path.join(JSON_CACHE_DIR, f"{cache_id}.json")
 
 
 def validate_domain(domain: str) -> bool:

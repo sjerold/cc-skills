@@ -1,4 +1,4 @@
-# 衔风搜索 - 架构设计文档 (修订版)
+# 衔风 - 架构设计文档
 
 ## 1. 设计概述
 
@@ -335,7 +335,7 @@ usage: xianfeng_search.py [-h] [--domain DOMAIN] [-r] [--scan-only]
                           [--show-browser] [--json] [-o OUTPUT]
                           [keyword]
 
-衔风搜索 - 飞书云文档搜索工具
+衔风 - 飞书云文档搜索工具
 
 positional arguments:
   keyword               搜索关键词
