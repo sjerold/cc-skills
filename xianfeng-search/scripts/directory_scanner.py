@@ -61,6 +61,117 @@ class DirectoryScanner:
             文件夹缓存数据
         """
         log(f"  → 开始扫描文件夹...")
+        return self._scan_folder_internal(folder_id, progress_callback)
+
+    def scan_folder_recursive(self, folder_id: str = None, max_depth: int = 3, progress_callback: Callable = None) -> Dict:
+        """
+        递归扫描文件夹及其子文件夹
+
+        Args:
+            folder_id: 文件夹ID
+            max_depth: 最大递归深度（默认3层）
+            progress_callback: 进度回调函数
+
+        Returns:
+            完整的文件夹缓存数据（包含所有子文件夹）
+        """
+        log(f"  → 开始递归扫描文件夹（最大深度: {max_depth}）...")
+        return self._scan_recursive(folder_id, 0, max_depth, progress_callback)
+
+    def _scan_recursive(self, folder_id: str, current_depth: int, max_depth: int, progress_callback: Callable = None, parent_path: str = '') -> Dict:
+        """
+        内部递归扫描方法
+
+        Args:
+            folder_id: 文件夹ID
+            current_depth: 当前深度
+            max_depth: 最大深度
+            progress_callback: 进度回调
+            parent_path: 父路径
+
+        Returns:
+            文件夹缓存数据
+        """
+        # 扫描当前层级
+        cache_entry = self._scan_folder_internal(folder_id, progress_callback)
+
+        if not cache_entry:
+            return None
+
+        # 更新路径（如果有父路径）
+        if parent_path:
+            cache_entry['folder_path'] = f"{parent_path}/{cache_entry.get('folder_name', '')}"
+
+        # 如果达到最大深度，不再递归
+        if current_depth >= max_depth:
+            log(f"    达到最大深度 {max_depth}，停止递归")
+            return cache_entry
+
+        # 获取子文件夹
+        children = cache_entry.get('children', {})
+        if not children:
+            return cache_entry
+
+        current_path = cache_entry.get('folder_path', '')
+
+        # 递归扫描每个子文件夹
+        log(f"    发现 {len(children)} 个子文件夹，开始递归扫描...")
+        scanned_children = {}
+
+        for child_id, child_info in children.items():
+            child_name = child_info.get('folder_name', '')
+            child_url = child_info.get('url') or f"{self.navigator.domain}/drive/folder/{child_id}"
+
+            log(f"    → 导航到子文件夹: {child_name[:30]}...")
+
+            try:
+                # 导航到子文件夹
+                self.page.goto(child_url, timeout=30000, wait_until="domcontentloaded")
+                time.sleep(2)
+
+                # 递归扫描
+                child_cache = self._scan_recursive(
+                    child_id,
+                    current_depth + 1,
+                    max_depth,
+                    progress_callback,
+                    current_path
+                )
+
+                if child_cache:
+                    scanned_children[child_id] = child_cache
+                    self.folder_count += 1
+
+                    if progress_callback:
+                        progress_callback(self.scanned_count, self.folder_count)
+
+            except Exception as e:
+                log(f"    ✗ 子文件夹扫描失败: {e}")
+                scanned_children[child_id] = child_info  # 保留原始信息
+
+        # 更新children为扫描后的结果
+        cache_entry['children'] = scanned_children
+        cache_entry['child_count'] = len(scanned_children)
+
+        # 计算所有文档总数（包含子文件夹）
+        total_docs = len(cache_entry.get('docs', []))
+        for child_cache in scanned_children.values():
+            if isinstance(child_cache, dict):
+                total_docs += child_cache.get('doc_count', 0)
+                # 也加上子文件夹的子文件夹文档
+                for sub_child in child_cache.get('children', {}).values():
+                    if isinstance(sub_child, dict):
+                        total_docs += sub_child.get('doc_count', 0)
+
+        cache_entry['total_doc_count'] = total_docs
+
+        return cache_entry
+
+    def _scan_folder_internal(self, folder_id: str = None, progress_callback: Callable = None) -> Dict:
+        """
+        内部扫描方法（单层级）
+        """
+        log(f"  → 开始扫描文件夹...")
 
         if not folder_id:
             # 从URL提取文件夹ID
@@ -936,33 +1047,38 @@ class DirectoryScanner:
                         data = resp['data']
                         log(f"    [API] 数据解析成功")
                         # 飞书私有部署API结构: data.data.entities 或 data.data.node_list
-                if isinstance(data, dict):
-                    log(f"    [API] 顶层键: {list(data.keys())[:10]}")
-                    inner_data = data.get('data', {})
-                    if isinstance(inner_data, dict):
-                        log(f"    [API] data.data键: {list(inner_data.keys())[:10]}")
-                        # 飞书私有部署的文件列表在 entities 或 node_list 中
-                        entities = inner_data.get('entities', [])
-                        node_list = inner_data.get('node_list', [])
-                        log(f"    [API] entities数量: {len(entities)}, node_list数量: {len(node_list)}")
+                        if isinstance(data, dict):
+                            log(f"    [API] 顶层键: {list(data.keys())[:10]}")
+                            inner_data = data.get('data', {})
+                            if isinstance(inner_data, dict):
+                                log(f"    [API] data.data键: {list(inner_data.keys())[:10]}")
+                                # 飞书私有部署的文件列表在 entities 或 node_list 中
+                                entities = inner_data.get('entities', [])
+                                node_list = inner_data.get('node_list', [])
+                                log(f"    [API] entities数量: {len(entities)}, node_list数量: {len(node_list)}")
+                                log(f"    [API] DEBUG: entities类型: {type(entities).__name__}, node_list类型: {type(node_list).__name__}")
 
-                        # 打印第一个entity的完整结构
-                        if entities and len(entities) > 0:
-                            first_entity = entities[0]
-                            log(f"    [API] 第一个entity类型: {type(first_entity).__name__}")
-                            if isinstance(first_entity, dict):
-                                log(f"    [API] entity键: {list(first_entity.keys())}")
-                                log(f"    [API] entity内容: {str(first_entity)[:300]}")
+                                # 打印entities内容（如果是dict）
+                                if entities and isinstance(entities, dict):
+                                    log(f"    [API] DEBUG: entities是dict，键: {list(entities.keys())[:10]}")
+                                    # 打印第一个entity
+                                    for key, val in list(entities.items())[:2]:
+                                        log(f"    [API] entity[{key}]: {str(val)[:200]}")
 
-                        # 打印node_list第一个元素
-                        if node_list and len(node_list) > 0:
-                            first_node = node_list[0]
-                            log(f"    [API] 第一个node类型: {type(first_node).__name__}, 值: {str(first_node)[:50]}")
-                        # 查找文件列表
-                        docs, subfolders = self._parse_api_file_list(data, folder_id)
-                        if docs or subfolders:
-                            log(f"    [API] 从API获取: {len(docs)} 个文档, {len(subfolders)} 个文件夹")
-                            return {'docs': docs, 'subfolders': subfolders}
+                                # 打印node_list第一个元素
+                                if node_list and isinstance(node_list, list):
+                                    log(f"    [API] DEBUG: node_list是list，有{len(node_list)}个")
+                                    first_node = node_list[0]
+                                    log(f"    [API] 第一个node类型: {type(first_node).__name__}, 值: {str(first_node)[:80]}")
+                                # 查找文件列表
+                                try:
+                                    docs, subfolders = self._parse_api_file_list(data, folder_id)
+                                    log(f"    [API] _parse返回: {len(docs)} docs, {len(subfolders)} folders")
+                                    if docs or subfolders:
+                                        log(f"    [API] 从API获取: {len(docs)} 个文档, {len(subfolders)} 个文件夹")
+                                        return {'docs': docs, 'subfolders': subfolders}
+                                except Exception as parse_error:
+                                    log(f"    [API] _parse异常: {parse_error}")
 
             log(f"    [API] 未找到有效的文件列表数据")
             return None
@@ -1024,76 +1140,143 @@ class DirectoryScanner:
                         log(f"    [API] node_list第一个元素类型: {type(first_node).__name__}")
                         if isinstance(first_node, str):
                             log(f"    [API] node_list是token字符串列表，有 {len(node_list)} 个文档token")
-                            # node_list是token列表，直接用token构造文档列表
-                            # 同时使用entities获取文件夹信息
-                            docs_from_tokens = []
-                            for token in node_list:
-                                docs_from_tokens.append({
-                                    'token': token,
-                                    'name': f'文档_{token[:8]}',
-                                    'type': 'doc',
-                                    'obj_type': 1  # 默认作为文档
-                                })
 
-                            # 处理entities（可能是文件夹或文档）
-                            folders_from_entities = []
-                            docs_from_entities = []
-                            for entity in entities:
-                                if isinstance(entity, dict):
-                                    log(f"    [API] entity键: {list(entity.keys())[:10]}")
-                                    log(f"    [API] entity: {str(entity)[:200]}")
-                                    entity_type = entity.get('type') or entity.get('obj_type', '')
-                                    entity_name = entity.get('name', f'文件夹_{entity.get("token", "")[:8]}')
-                                    entity_token = entity.get('token', '')
-                                    # 打印更多字段
-                                    log(f"    [API] entity: token={entity_token[:8]}, type={entity_type}, name={entity_name[:20]}")
-                                    # 检查是否有doc_token字段
-                                    doc_token = entity.get('doc_token') or entity.get('url_token') or entity.get('obj_token', '')
-                                    if doc_token:
-                                        log(f"    [API] 发现doc_token: {doc_token[:20]}")
-                                        docs_from_entities.append({
-                                            'id': doc_token,
-                                            'name': entity_name,
-                                            'url': f"{self.navigator.domain}/docx/{doc_token}",
-                                        })
-                                    elif entity_type in ['folder', 2]:
-                                        folders_from_entities.append({
-                                            'id': entity_token,
-                                            'name': entity_name,
-                                            'url': f"{self.navigator.domain}/drive/folder/{entity_token}",
-                                        })
+                            # entities是dict，包含'nodes'和'users'
+                            # entities['nodes']是dict，key=node_token，value包含obj_token等信息
+                            nodes_dict = {}
+                            if isinstance(entities, dict) and 'nodes' in entities:
+                                nodes_dict = entities.get('nodes', {})
+                                log(f"    [API] entities['nodes']有 {len(nodes_dict)} 个节点详情")
+
+                            docs_from_nodes = []
+                            folders_from_nodes = []
+                            for idx, node_token in enumerate(node_list):
+                                # 从entities['nodes']获取详细信息
+                                node_info = nodes_dict.get(node_token, {})
+                                if node_info and isinstance(node_info, dict):
+                                    # 打印第一个node_info的完整结构用于调试
+                                    if idx == 0:
+                                        log(f"    [API] node_info示例键: {list(node_info.keys())}")
+                                        log(f"    [API] name={node_info.get('name')}, type={node_info.get('type')}, node_type={node_info.get('node_type')}")
+
+                                    # obj_token是真正的文档ID（doxvm...格式）
+                                    obj_token = node_info.get('obj_token', node_token)
+                                    node_type = node_info.get('node_type', 1)  # 默认为文档
+                                    obj_type = node_info.get('type', 1)
+
+                                    # 尝试多个可能的名称字段位置
+                                    item_name = node_info.get('name') or f'文档_{obj_token[:8]}'
+
+                                    # 判断是文件夹还是文档
+                                    # node_type=0 是文件夹，node_type=1 是文档
+                                    # 或者 obj_token 前缀判断：doc/dox/box/sht 是文档，其他可能是文件夹
+                                    # 注意：某些API返回中 node_type 可能不准确，需要结合 obj_token 前缀判断
+                                    is_folder = False
+
+                                    # 方法1：通过 node_type 判断（node_type=1是文档）
+                                    if node_type == 1:
+                                        is_folder = False
+                                    elif node_type == 0 and obj_token != folder_id:
+                                        # node_type=0 可能是文件夹，但需要进一步验证
+                                        # 如果 obj_token 是文档格式，仍然当作文档
+                                        if obj_token.startswith(('doc', 'dox', 'box', 'sht', 'wik')):
+                                            is_folder = False
+                                        else:
+                                            is_folder = True
                                     else:
-                                        # 尝试将entity token作为doc token
-                                        log(f"    [API] 尝试使用entity token作为doc token")
-                                        docs_from_entities.append({
-                                            'id': entity_token,
-                                            'name': entity_name,
-                                            'url': f"{self.navigator.domain}/docx/{entity_token}",
+                                        # 方法2：通过 obj_token 前缀判断
+                                        if obj_token.startswith(('doc', 'dox', 'box', 'sht', 'wik')):
+                                            is_folder = False
+                                        else:
+                                            is_folder = True
+
+                                    if is_folder:
+                                        # 文件夹URL：使用node_info中的url，或自己拼接
+                                        folder_url = node_info.get('url') or f"{self.navigator.domain}/drive/folder/{obj_token}"
+                                        folders_from_nodes.append({
+                                            'type': 'folder',
+                                            'id': obj_token,
+                                            'name': item_name,
+                                            'url': folder_url,
                                         })
-
-                            log(f"    [API] 从token列表构造: {len(docs_from_tokens)} 个文档, {len(docs_from_entities)} 个实体文档, {len(folders_from_entities)} 个文件夹")
-
-                            # 优先使用 entities 中的文档（可能包含正确的 doc token）
-                            if docs_from_entities:
-                                log(f"    [API] 使用entities中的文档")
-                                docs = docs_from_entities
-                            else:
-                                docs = []
-                                for doc in docs_from_tokens:
-                                    docs.append({
+                                        log(f"    [API] node: {node_token[:8]} -> folder: {obj_token[:8]}, node_type={node_type}, type={obj_type}, name: {item_name[:30] if len(item_name) > 30 else item_name}")
+                                    else:
+                                        # 文档URL：构建正确的URL路径
+                                        # node_info['url'] 可能是相对路径（如 /file/xxx）或只有ID
+                                        raw_url = node_info.get('url', '')
+                                        if raw_url.startswith('http'):
+                                            # 完整URL，直接使用
+                                            doc_url = raw_url
+                                        elif raw_url.startswith('/'):
+                                            # 相对路径，拼接域名
+                                            doc_url = f"{self.navigator.domain}{raw_url}"
+                                        elif raw_url.startswith(('file/', 'docx/', 'sheets/', 'sheet/', 'wiki/')):
+                                            # 有路径前缀但没有 /，添加 /
+                                            doc_url = f"{self.navigator.domain}/{raw_url}"
+                                        else:
+                                            # 没有路径或只有ID，根据obj_token前缀构建
+                                            if obj_token.startswith('sht'):
+                                                doc_url = f"{self.navigator.domain}/sheets/{obj_token}"
+                                            elif obj_token.startswith('box'):
+                                                doc_url = f"{self.navigator.domain}/file/{obj_token}"
+                                            elif obj_token.startswith('wik'):
+                                                doc_url = f"{self.navigator.domain}/wiki/{obj_token}"
+                                            else:
+                                                doc_url = f"{self.navigator.domain}/docx/{obj_token}"
+                                        docs_from_nodes.append({
+                                            'type': 'doc',
+                                            'id': obj_token,
+                                            'name': item_name,
+                                            'url': doc_url,
+                                            'edit_time': node_info.get('edit_time'),  # 最后修改时间
+                                        })
+                                        # 只打印URL路径最后部分避免日志过长
+                                        url_path = doc_url.split('/')[-1] if '/' in doc_url else doc_url
+                                        log(f"    [API] node: {node_token[:8]} -> doc: {obj_token[:8]}, type={obj_type}, url_path: {url_path[:20]}, name: {item_name[:30] if len(item_name) > 30 else item_name}")
+                                else:
+                                    # 没有详细信息，直接用node_token（可能不对）
+                                    docs_from_nodes.append({
                                         'type': 'doc',
-                                        'id': doc['token'],
-                                        'name': doc['name'],
-                                        'url': f"{self.navigator.domain}/docx/{doc['token']}",
+                                        'id': node_token,
+                                        'name': f'文档_{node_token[:8]}',
+                                        'url': f"{self.navigator.domain}/docx/{node_token}",
                                     })
 
-                            if docs or folders_from_entities:
-                                return docs, folders_from_entities  # 返回元组，不是字典
+                            # 处理entities中的额外文件夹（如果有，排除已经在 folders_from_nodes 中的）
+                            # 注意：folders_from_nodes 已经处理了 node_list 中的所有项目
+                            # 这里只处理不在 node_list 中但确实是文件夹的节点（比如当前文件夹本身不需要）
+                            folders_from_entities = []
+                            seen_folder_ids = {f['id'] for f in folders_from_nodes}
+                            seen_doc_ids = {d['id'] for d in docs_from_nodes}
+                            if isinstance(entities, dict) and 'nodes' in entities:
+                                for node_token, node_info in nodes_dict.items():
+                                    obj_token = node_info.get('obj_token', node_token)
+                                    # 排除：已在 folders_from_nodes、已在 docs_from_nodes、当前文件夹本身
+                                    if obj_token in seen_folder_ids or obj_token in seen_doc_ids or obj_token == folder_id:
+                                        continue
+                                    # 只处理确实是文件夹的项目（不在 node_list 中）
+                                    # 通过 obj_token 前缀判断：非文档前缀 + type=0 才是文件夹
+                                    obj_type_val = node_info.get('type', 0)
+                                    is_doc_prefix = obj_token.startswith(('doc', 'dox', 'box', 'sht', 'wik'))
+                                    if not is_doc_prefix and obj_type_val == 0:
+                                        folders_from_entities.append({
+                                            'id': obj_token,
+                                            'name': node_info.get('name', f'文件夹_{node_token[:8]}'),
+                                            'url': f"{self.navigator.domain}/drive/folder/{obj_token}",
+                                        })
+
+                            # 合并文件夹列表
+                            all_folders = folders_from_nodes + folders_from_entities
+                            log(f"    [API] 从nodes获取: {len(docs_from_nodes)} 个文档, {len(all_folders)} 个文件夹")
+
+                            docs = docs_from_nodes
+                            if docs or all_folders:
+                                return docs, all_folders
                         else:
                             # node_list是对象列表，使用它
                             items = node_list
                     else:
-                        items = entities
+                        items = entities if isinstance(entities, list) else []
 
                     log(f"    [API] 使用 {len(items)} 个项目进行解析")
 

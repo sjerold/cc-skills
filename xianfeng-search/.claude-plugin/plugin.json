@@ -1,7 +1,7 @@
 {
   "name": "xianfeng-search",
-  "description": "衔风：飞书云文档智能搜索。支持目录遍历、缓存、文档名匹配、内容抓取。适用于飞书私有化部署版本。",
-  "version": "1.5.0",
+  "description": "衔风：飞书云文档智能搜索。支持递归扫描、智能缓存、全文搜索、文档抓取。适用于飞书私有化部署版本。",
+  "version": "1.6.0",
   "author": {
     "name": "claude-code",
     "url": "https://github.com/anthropics/claude-code"
@@ -18,9 +18,11 @@
     "飞书",
     "云文档",
     "文档搜索",
-    "内容抓取"
+    "内容抓取",
+    "全文搜索"
   ],
   "dependencies": [
-    { "name": "common", "version": ">=1.4.0" }
+    { "name": "common", "version": ">=1.4.0" },
+    { "name": "file-searcher", "version": ">=1.0.0" }
   ]
 }

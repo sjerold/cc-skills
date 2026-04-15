@@ -187,10 +187,12 @@ def _do_search(keyword: str, url: str, options: dict):
     # 格式化输出
     print("\n" + "=" * 60)
     print(f"搜索结果: {keyword}")
-    print(f"共找到 {result.get('total', 0)} 个匹配文档")
+    print(f"名称匹配: {result.get('total', 0)} 个文档")
+    print(f"内容匹配: {len(result.get('content_results', []))} 个文件")
     print("=" * 60)
 
     if result.get('results'):
+        print("\n【名称匹配】")
         for i, doc in enumerate(result['results'][:20], 1):
             score = doc.get('match_score', 0)
             print(f"\n{i}. [{score:.0%}] {doc.get('name', 'N/A')}")
@@ -198,6 +200,17 @@ def _do_search(keyword: str, url: str, options: dict):
                 print(f"   路径: {doc['folder_path']}")
             if doc.get('url'):
                 print(f"   链接: {doc['url'][:60]}...")
+
+    if result.get('content_results'):
+        print("\n【内容匹配】")
+        for i, content in enumerate(result['content_results'][:20], 1):
+            print(f"\n{i}. {content.get('filename', 'N/A')}")
+            print(f"   路径: {content.get('filepath', 'N/A')}")
+            print(f"   匹配次数: {content.get('match_count', 0)}")
+            if content.get('snippets'):
+                print(f"   匹配内容:")
+                for j, snippet in enumerate(content['snippets'][:3], 1):
+                    print(f"      ({j}) ...{snippet[:100]}...")
 
     if result.get('errors'):
         print("\n" + "-" * 60)

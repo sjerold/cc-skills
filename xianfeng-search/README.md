@@ -4,18 +4,19 @@
 
 ## 功能特性
 
-- **目录扫描** - 递归遍历飞书文件夹，获取完整文档树
-- **智能缓存** - 增量缓存机制，避免重复扫描
+- **递归扫描** - 自动遍历子文件夹，最大深度3层，获取完整文档树
+- **智能缓存** - 单独缓存子文件夹时更新父缓存，避免重复文件
+- **增量更新** - 比对 edit_time，跳过未修改的文档
+- **全文搜索** - 集成 file-searcher，支持在 Markdown 内容中搜索关键词
 - **文档抓取** - 抓取文档内容并保存为 Markdown，表格格式正确
 - **目录结构** - MD文件保持原有目录层级
 - **名称-ID格式** - 缓存文件使用"名称-ID"格式，易于识别
-- **表格支持** - 正确提取表格内容，避免重复
 
 ## 安装
 
 ```bash
 # 安装依赖
-pip install playwright beautifulsoup4
+pip install playwright beautifulsoup4 python-docx PyMuPDF
 
 # 安装 Playwright 浏览器
 playwright install chromium
@@ -26,29 +27,25 @@ playwright install chromium
 ### CLI 命令
 
 ```bash
-# 扫描目录 - 生成JSON文档树
-python xianfeng_search.py 扫描 --url https://your-feishu.com/drive/folder/xxx
+# 缓存文档 - 递归扫描+抓取MD
+衔风 缓存 https://your-feishu.com/drive/folder/xxx
 
-# 缓存文档 - 扫描+抓取MD
-python xianfeng_search.py 缓存 --url https://your-feishu.com/drive/folder/xxx
-
-# 搜索文档
-python xianfeng_search.py 搜索 关键词
+# 搜索文档 - 名称+内容全文搜索
+衔风 搜索 关键词
 
 # 查看缓存状态
-python xianfeng_search.py --status
+衔风 --status
 
 # 关闭Chrome
-python xianfeng_search.py --close
+衔风 --close
 ```
 
-### 选项
+### Skill 调用
 
-| 选项 | 说明 |
-|------|------|
-| `--show-browser` | 显示浏览器窗口（默认后台运行） |
-| `--login-timeout` | 登录等待超时时间（秒） |
-| `--limit` | 搜索结果数量限制 |
+```
+衔风 缓存 <URL>      # 缓存文件夹或单个文档
+衔风 搜索 <关键词>    # 搜索（名称匹配 + 内容全文搜索）
+```
 
 ## 架构
 
@@ -60,14 +57,15 @@ xianfeng-search/
 │   └── xianfeng-search/
 │       └── SKILL.md         # Skill定义
 ├── scripts/
-│   ├── xianfeng_search.py   # CLI入口
-│   ├── operations.py        # 核心操作
-│   ├── directory_scanner.py # 目录扫描
-│   ├── content_fetcher.py   # 内容抓取
-│   ├── sheets_fetcher.py    # 表格抓取
-│   ├── cache_manager.py     # 缓存管理
+│   ├── xianfeng_search_cli.py   # CLI入口
+│   ├── operations.py        # 核心操作（搜索、缓存）
+│   ├── directory_scanner.py # 目录扫描（支持递归）
+│   ├── cache_manager.py     # 缓存管理（智能合并）
 │   ├── feishu_navigator.py  # 浏览器导航
-│   └── chrome_helper.py     # Chrome启动
+│   └── fetch/
+│       ├── async_fetcher.py # 异步并行抓取
+│       ├── markdown_writer.py # Markdown保存
+│       └── table_parser.py  # 表格解析
 └── cache/                   # 缓存目录
 ```
 
@@ -75,15 +73,36 @@ xianfeng-search/
 
 ```
 衔风云文档缓存/
-├── 文件夹名-ID.json         # 目录结构缓存
+├── 目录结构/
+│   └── 文件夹名-ID.json     # 目录结构缓存（含子文件夹）
 ├── 文档内容/
-│   ├── My Space/
-│   │   └── 文档名-ID.md
-│   └── My Space_子文件夹/
+│   ├── 文件夹名/
+│   │   └── 文档名-ID.md     # 抓取的Markdown内容
+│   └── 文件夹名_子文件夹/
 │       └── 文档名-ID.md
 ```
 
+## 搜索功能
+
+### 名称匹配
+- 精确匹配文档名称
+- 路径匹配
+- 模糊匹配
+
+### 内容搜索
+- 调用 file-searcher 插件
+- 在已抓取的 Markdown 文件中搜索
+- 显示匹配上下文片段
+- 关键词用【】标注
+
 ## 更新日志
+
+### v1.6.0 (2026-04-15)
+
+- **新增** 递归扫描子文件夹（最大深度3层）
+- **新增** 智能缓存：单独缓存子文件夹时更新父缓存children，避免重复文件
+- **新增** 全文搜索：集成 file-searcher 插件，支持在 Markdown 内容中搜索
+- **改进** 搜索结果显示：分名称匹配和内容匹配两部分
 
 ### v1.5.0 (2026-04-14)
 
@@ -110,6 +129,7 @@ xianfeng-search/
 - Python 3.8+
 - Playwright
 - BeautifulSoup4
+- file-searcher 插件（用于全文搜索）
 
 ## License
 

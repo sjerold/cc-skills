@@ -498,6 +498,120 @@ def find_folder_info_from_parent_cache(folder_id: str) -> Dict:
     return {}
 
 
+def find_parent_cache_for_child(child_folder_id: str) -> Optional[Dict]:
+    """
+    查找包含指定子文件夹的父缓存
+
+    Args:
+        child_folder_id: 子文件夹ID
+
+    Returns:
+        父缓存数据（包含parent_folder_id），找不到返回None
+    """
+    if not os.path.exists(JSON_CACHE_DIR):
+        return None
+
+    for filename in os.listdir(JSON_CACHE_DIR):
+        if not filename.endswith('.json'):
+            continue
+
+        cache_path = os.path.join(JSON_CACHE_DIR, filename)
+        try:
+            with open(cache_path, 'r', encoding='utf-8') as f:
+                parent_cache = json.load(f)
+
+            children = parent_cache.get('children', {})
+            if child_folder_id in children:
+                return {
+                    'parent_cache': parent_cache,
+                    'parent_cache_path': cache_path,
+                    'parent_folder_id': parent_cache.get('folder_id'),
+                }
+
+        except Exception as e:
+            continue
+
+    return None
+
+
+def update_parent_cache_child(child_folder_id: str, child_cache_data: Dict) -> bool:
+    """
+    更新父缓存的子文件夹数据（而非创建独立缓存）
+
+    当单独缓存子文件夹时，如果父缓存已存在，则更新父缓存的children部分，
+    避免创建重复的独立缓存文件。
+
+    Args:
+        child_folder_id: 子文件夹ID
+        child_cache_data: 子文件夹扫描结果
+
+    Returns:
+        是否成功更新到父缓存
+    """
+    parent_info = find_parent_cache_for_child(child_folder_id)
+
+    if not parent_info:
+        return False
+
+    parent_cache = parent_info['parent_cache']
+    parent_cache_path = parent_info['parent_cache_path']
+
+    # 更新父缓存的children部分
+    parent_cache['children'][child_folder_id] = child_cache_data
+
+    # 更新父缓存的统计信息
+    # 重新计算total_doc_count（如果存在）
+    if 'total_doc_count' in parent_cache:
+        total = len(parent_cache.get('docs', []))
+        for child_id, child in parent_cache.get('children', {}).items():
+            total += child.get('total_doc_count', child.get('doc_count', 0))
+        parent_cache['total_doc_count'] = total
+
+    # 更新缓存时间
+    parent_cache['cache_time'] = datetime.now().isoformat()
+
+    # 保存更新后的父缓存
+    try:
+        with open(parent_cache_path, 'w', encoding='utf-8') as f:
+            json.dump(parent_cache, f, ensure_ascii=False, indent=2)
+        print(f"已更新父缓存: {parent_cache.get('folder_name', 'unknown')}", file=sys.stderr)
+        return True
+    except Exception as e:
+        print(f"更新父缓存失败: {e}", file=sys.stderr)
+        return False
+
+
+def save_folder_cache_smart(folder_id: str, data: Dict, force_independent: bool = False) -> bool:
+    """
+    智能保存文件夹缓存：
+    1. 如果有父缓存包含此文件夹，更新父缓存的children（避免重复）
+    2. 如果没有父缓存，创建独立缓存
+
+    Args:
+        folder_id: 文件夹ID
+        data: 缓存数据
+        force_independent: 强制创建独立缓存（不更新父缓存）
+
+    Returns:
+        是否成功
+    """
+    # 如果不强制独立，先尝试更新父缓存
+    if not force_independent:
+        if update_parent_cache_child(folder_id, data):
+            # 成功更新父缓存，删除可能存在的独立缓存文件
+            existing_cache_path = find_cache_by_folder_id(folder_id)
+            if existing_cache_path:
+                try:
+                    os.remove(existing_cache_path)
+                    print(f"已删除重复缓存: {os.path.basename(existing_cache_path)}", file=sys.stderr)
+                except:
+                    pass
+            return True
+
+    # 没有父缓存或强制独立，创建独立缓存
+    return save_folder_cache(folder_id, data)
+
+
 def clear_all_caches() -> bool:
     """清理所有缓存"""
     import shutil
