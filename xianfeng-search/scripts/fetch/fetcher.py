@@ -82,9 +82,9 @@ def fetch_document_content(page, doc_url: str, wait_time: int = CONTENT_WAIT_TIM
             pass
 
         # 检测文档类型
-        if '/sheets/' in doc_url.lower():
+        if '/sheets/' in doc_url.lower() or '/sheet/' in doc_url.lower():
             print("  检测到表格文档，使用表格抓取模式", file=sys.stderr)
-            from sheets_fetcher import fetch_sheets_content
+            from .sheets_fetcher import fetch_sheets_content
             return fetch_sheets_content(page, doc_url, result)
 
         # 普通文档：滚动加载完整内容

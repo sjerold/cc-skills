@@ -49,12 +49,19 @@ async def fetch_single_doc_async(page, doc_url: str, doc_info: dict) -> dict:
 
     doc_id = extract_doc_id(doc_url)
 
+    # 检测是否是表格类型
+    is_sheet = '/sheets/' in doc_url.lower() or '/sheet/' in doc_url.lower()
+
     # 捕获的 API 响应
     captured_responses = []
 
     async def on_response(response):
         url = response.url
-        if 'client_vars' in url or ('block' in url.lower() and 'vars' in url.lower()):
+        # 拦截 docx 和 sheet 相关 API
+        keywords = ['client_vars', 'block', 'vars']
+        if is_sheet:
+            keywords.extend(['sheet', 'grid', 'cells', 'spreadsheet', 'range'])
+        if any(kw in url.lower() for kw in keywords):
             captured_responses.append(response)
 
     try:
@@ -85,6 +92,11 @@ async def fetch_single_doc_async(page, doc_url: str, doc_info: dict) -> dict:
             title = doc_info.get('name', '未命名文档')
             seen_block_ids = set()
 
+            # Sheet 数据收集
+            sheet_cells = {}
+            max_row = 0
+            max_col = 0
+
             for response in captured_responses:
                 try:
                     data = await response.json()
@@ -108,9 +120,70 @@ async def fetch_single_doc_async(page, doc_url: str, doc_info: dict) -> dict:
                     if meta.get('title'):
                         title = meta['title']
 
+                    # 提取 Sheet 数据
+                    if is_sheet:
+                        from .sheets_fetcher import parse_cell_key, extract_cell_value
+
+                        # 从 block_map 中提取表格数据
+                        for block_id, block in block_map.items():
+                            block_data = block.get('data', {})
+                            block_type = block_data.get('type', '')
+
+                            if block_type in ['sheet', 'table']:
+                                cells = block_data.get('cells', [])
+                                if cells and isinstance(cells, list):
+                                    for ri, row in enumerate(cells):
+                                        if isinstance(row, list):
+                                            for ci, cell in enumerate(row):
+                                                text = extract_cell_value(cell)
+                                                if text:
+                                                    sheet_cells[(ri, ci)] = text
+                                                    max_row = max(max_row, ri)
+                                                    max_col = max(max_col, ci)
+
+                                # 尝试 cell_set 格式
+                                cell_set = block_data.get('cell_set', {})
+                                if cell_set:
+                                    for cell_key, cell_val in cell_set.items():
+                                        pos = parse_cell_key(cell_key)
+                                        if pos:
+                                            row, col = pos
+                                            text = extract_cell_value(cell_val)
+                                            if text:
+                                                sheet_cells[(row, col)] = text
+                                                max_row = max(max_row, row)
+                                                max_col = max(max_col, col)
+
+                        # 尝试直接的 sheet_data
+                        sheet_data = data.get('sheet', data.get('spreadsheet', {}))
+                        if sheet_data:
+                            cells = sheet_data.get('cells', sheet_data.get('data', []))
+                            if isinstance(cells, list):
+                                for ri, row in enumerate(cells):
+                                    if isinstance(row, list):
+                                        for ci, cell in enumerate(row):
+                                            text = str(cell) if cell else ''
+                                            if text:
+                                                sheet_cells[(ri, ci)] = text
+                                                max_row = max(max_row, ri)
+                                                max_col = max(max_col, ci)
+
                 except:
                     continue
 
+            # Sheet 类型处理
+            if is_sheet and sheet_cells:
+                from .sheets_fetcher import build_sheet_markdown
+                content = build_sheet_markdown(sheet_cells, max_row, max_col)
+                if content and len(content) > 50:
+                    result['success'] = True
+                    result['title'] = title
+                    result['content'] = content
+                    result['length'] = len(content)
+                    result['method'] = 'sheet_api_async'
+                    return result
+
+            # 普通文档处理
             if merged_block_map:
                 # 从 block_map 提取内容
                 from fetch.api_fetcher import extract_content_from_blocks
@@ -130,7 +203,24 @@ async def fetch_single_doc_async(page, doc_url: str, doc_info: dict) -> dict:
         except:
             pass
 
-        # 提取内容
+        # Sheet 类型使用 DOM 方式
+        if is_sheet:
+            try:
+                from .sheets_fetcher import extract_sheet_id
+                sheet_id = extract_sheet_id(doc_url)
+                dom_result = await fetch_sheet_dom_async(page, doc_url, sheet_id)
+                if dom_result and dom_result.get('content'):
+                    result['success'] = True
+                    result['title'] = dom_result.get('title', '未命名表格')
+                    result['content'] = dom_result['content']
+                    result['length'] = len(result['content'])
+                    result['method'] = 'sheet_dom_async'
+                    return result
+            except Exception as e:
+                result['error'] = f'Sheet DOM抓取失败: {e}'
+                return result
+
+        # 普通文档：提取内容
         try:
             editor = await page.query_selector('[contenteditable]')
             if editor:
@@ -264,3 +354,161 @@ def fetch_docs_parallel(docs: list, domain: str, workers: int = 2) -> list:
         return loop.run_until_complete(fetch_docs_parallel_async(docs, domain, workers))
     finally:
         loop.close()
+
+
+async def fetch_sheet_dom_async(page, doc_url: str, sheet_id: str) -> dict:
+    """
+    异步 DOM 方式提取表格内容
+
+    Args:
+        page: Playwright 异步页面对象
+        doc_url: 表格 URL
+        sheet_id: 表格 ID
+
+    Returns:
+        包含 title 和 content 的字典
+    """
+    import re
+
+    result = {'title': '未命名表格', 'content': ''}
+
+    try:
+        # 等待表格容器加载
+        try:
+            await page.wait_for_selector('.sheet-container, .grid-container, table, [class*="sheet"]', timeout=15000)
+        except:
+            pass
+
+        # 提取标题
+        try:
+            title_elem = await page.query_selector('.sheet-title, .title, [class*="title"]')
+            if title_elem:
+                result['title'] = await title_elem.inner_text()
+            else:
+                page_title = await page.title()
+                result['title'] = re.sub(r'\s*[-|]\s*(飞书|Lark|Feishu).*$', '', page_title).strip()
+        except:
+            pass
+
+        # 使用 JS 提取表格数据
+        sheet_data = await page.evaluate('''
+            () => {
+                const result = { rows: [], maxRow: 0, maxCol: 0 };
+
+                // 尝试多种表格选择器
+                const selectors = [
+                    '.sheet-container table',
+                    '.grid-container table',
+                    'table.sheet',
+                    'table.grid',
+                    'table',
+                    '[class*="sheet"] table',
+                    '[class*="grid"] table'
+                ];
+
+                let table = null;
+                for (const sel of selectors) {
+                    table = document.querySelector(sel);
+                    if (table) break;
+                }
+
+                if (!table) {
+                    // 尝试直接提取单元格
+                    const cells = document.querySelectorAll('[class*="cell"], td, [data-col], [data-row]');
+                    if (cells.length > 0) {
+                        const cellMap = {};
+                        let maxRow = 0, maxCol = 0;
+                        cells.forEach(cell => {
+                            const row = parseInt(cell.getAttribute('data-row') || cell.parentElement?.getAttribute('data-row') || 0);
+                            const col = parseInt(cell.getAttribute('data-col') || cell.getAttribute('data-column') || 0);
+                            const text = cell.innerText?.trim() || cell.textContent?.trim() || '';
+                            if (text && row >= 0 && col >= 0) {
+                                cellMap[row + ',' + col] = text;
+                                maxRow = Math.max(maxRow, row);
+                                maxCol = Math.max(maxCol, col);
+                            }
+                        });
+
+                        for (let r = 0; r <= maxRow; r++) {
+                            const rowData = [];
+                            for (let c = 0; c <= maxCol; c++) {
+                                rowData.push(cellMap[r + ',' + c] || '');
+                            }
+                            if (rowData.some(v => v)) {
+                                result.rows.push(rowData);
+                            }
+                        }
+                        result.maxRow = maxRow;
+                        result.maxCol = maxCol;
+                        return result;
+                    }
+                    return result;
+                }
+
+                const rows = table.querySelectorAll('tr');
+                rows.forEach((row, ri) => {
+                    const cells = row.querySelectorAll('td, th');
+                    const rowData = [];
+                    cells.forEach((cell, ci) => {
+                        const text = cell.innerText?.trim() || '';
+                        rowData.push(text);
+                        result.maxCol = Math.max(result.maxCol, ci);
+                    });
+                    if (rowData.some(v => v)) {
+                        result.rows.push(rowData);
+                        result.maxRow = Math.max(result.maxRow, ri);
+                    }
+                });
+
+                return result;
+            }
+        ''')
+
+        if sheet_data and sheet_data.get('rows'):
+            from .table_parser import build_markdown_table
+            rows = sheet_data['rows']
+            if len(rows) > 0:
+                result['content'] = build_markdown_table(rows)
+
+        # 如果没有提取到内容，尝试滚动收集
+        if not result['content']:
+            all_rows = []
+            seen_content = set()
+
+            for scroll_round in range(20):
+                visible_rows = await page.evaluate('''
+                    () => {
+                        const rows = [];
+                        const trs = document.querySelectorAll('tr');
+                        trs.forEach(tr => {
+                            const rect = tr.getBoundingClientRect();
+                            if (rect.top >= 0 && rect.top <= window.innerHeight) {
+                                const cells = tr.querySelectorAll('td, th');
+                                const rowData = Array.from(cells).map(c => c.innerText?.trim() || '');
+                                if (rowData.some(v => v)) {
+                                    rows.push(rowData);
+                                }
+                            }
+                        });
+                        return rows;
+                    }
+                ''')
+
+                if visible_rows:
+                    for row in visible_rows:
+                        row_key = ','.join(row)
+                        if row_key not in seen_content and any(v for v in row):
+                            all_rows.append(row)
+                            seen_content.add(row_key)
+
+                await page.keyboard.press('PageDown')
+                await asyncio.sleep(0.3)
+
+            if all_rows:
+                from .table_parser import build_markdown_table
+                result['content'] = build_markdown_table(all_rows)
+
+    except Exception as e:
+        print(f"  [Sheet DOM Async] 异常: {e}", file=sys.stderr)
+
+    return result

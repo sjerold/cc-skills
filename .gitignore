@@ -22,3 +22,7 @@ known_marketplaces.json
 *.tmp
 *.temp
 *.log
+
+# Plugin configs with sensitive data
+xianfeng-subscribe/config/
+xianfeng-subscribe/scripts/config/

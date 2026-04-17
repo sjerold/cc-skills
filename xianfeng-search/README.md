@@ -97,6 +97,13 @@ xianfeng-search/
 
 ## 更新日志
 
+### v1.7.0 (2026-04-15)
+
+- **新增** 表格文档抓取：支持 `/sheets/` URL 格式的飞书表格
+- **新增** sheets_fetcher.py 模块：专门处理表格类型文档
+- **改进** API 拦截：同时拦截 sheet/grid/cells/spreadsheet 相关 API
+- **改进** async_fetcher.py：支持异步表格抓取（API + DOM 双模式）
+
 ### v1.6.0 (2026-04-15)
 
 - **新增** 递归扫描子文件夹（最大深度3层）

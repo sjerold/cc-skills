@@ -1,0 +1,25 @@
+{
+  "name": "xianfeng-subscribe",
+  "description": "衔风订阅：飞书消息推送。支持Webhook管理、卡片发送、搜索结果推送、折叠面板。",
+  "version": "1.1.0",
+  "author": {
+    "name": "claude-code",
+    "url": "https://github.com/anthropics/claude-code"
+  },
+  "repository": "https://github.com/sjerold/cc-skills/tree/main/xianfeng-subscribe",
+  "license": "MIT",
+  "skills": ["./skills/xianfeng-subscribe"],
+  "keywords": [
+    "xianfeng",
+    "feishu",
+    "webhook",
+    "card",
+    "notification",
+    "飞书",
+    "推送",
+    "卡片"
+  ],
+  "dependencies": [
+    { "name": "common", "version": ">=1.4.0" }
+  ]
+}

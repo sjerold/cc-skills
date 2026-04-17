@@ -500,7 +500,7 @@ def cache_folder(url: str, options: dict) -> dict:
     }
 
     # 判断是文档还是文件夹
-    if url_type == 'docx':
+    if url_type in ['docx', 'sheet']:
         # 单个文档 URL - 直接抓取内容
         log(f"  ✓ 文档ID: {doc_id}")
         result['folder_id'] = 'single_doc'

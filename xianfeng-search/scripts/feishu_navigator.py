@@ -210,7 +210,7 @@ class FeishuNavigator:
             content = self.page.content().lower()
 
             # 已登录特征
-            logged_in = ['/drive/folder', '/docx/', '/wiki/', '/sheet/', '/space/']
+            logged_in = ['/drive/folder', '/docx/', '/wiki/', '/sheet/', '/sheets/', '/space/']
             for indicator in logged_in:
                 if indicator in url:
                     log(f"检测到已登录URL特征: {indicator}")
