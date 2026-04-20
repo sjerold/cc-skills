@@ -80,7 +80,7 @@ summary_path = save_summary(query, results, md_contents, save_dir, session_id)
 
 | 插件 | 版本 | 说明 |
 |------|------|------|
-| baidu-search | 2.2.0 | 百度搜索增强版 |
+| baidu-search | 2.6.0 | 百度搜索增强版 |
 | xianfeng-search | 1.3.0 | 飞书云文档搜索 |
 | web-article-fetcher | 1.2.0 | 网页文章批量抓取 |
 
@@ -93,7 +93,18 @@ playwright install chromium
 
 ## 变更日志
 
-### 2.0.0 (2026-04-03)
+### 2.4.0 (2026-04-20)
+- **知乎抓取修复**：解决知乎页面"安全验证"关键词误判为反爬的问题
+- **视频/图片网站跳过**：web_fetcher 新增跳过列表（B站、YouTube、百度图片等）
+- **特殊字符清理**：清理零宽度字符、HTML特殊字符，避免编码错误
+- **内容解析优化**：改进 `_trim_content_boundaries`，清理CSDN页脚噪音
+
+### 2.3.0 (2026-04-08)
+- 新增 `_remove_noise_sections` 函数，移除评论区、推荐文章等噪音
+- 改进 `_trim_content_boundaries`，智能裁剪开头导航和结尾噪音
+- 新增 `smart_clean_text` 函数，合并多余空白并移除特殊字符
+
+### 2.2.0 (2026-04-03)
 - **全面异步重构**：chrome_manager 和 web_fetcher 全部使用 async_playwright
 - **简化代码结构**：移除 threading workaround，直接使用 asyncio.run()
 - **EPIPE修复**：CDP连接不调用 browser.close()/playwright.stop()，避免断开外部Chrome时出错

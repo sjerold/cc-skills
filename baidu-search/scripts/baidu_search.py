@@ -23,32 +23,17 @@ sys.path.insert(0, _common_dir)
 # 确保 UTF-8 编码
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
-# 导入异步 common 模块
-try:
-    from chrome_manager import (
-        get_browser_async, get_page_async, close_browser_async, close_page_async,
-        HAS_PLAYWRIGHT
-    )
-except ImportError as e:
-    print(f"无法导入chrome_manager: {e}", file=sys.stderr)
-    HAS_PLAYWRIGHT = False
+# 导入异步 common 模块（sys.path 已设置，直接导入）
+from chrome_manager import (
+    get_browser_async, get_page_async, close_browser_async, close_page_async,
+    HAS_PLAYWRIGHT
+)
 
-try:
-    from web_fetcher import fetch_urls_async
-except ImportError as e:
-    print(f"无法导入web_fetcher: {e}", file=sys.stderr)
+from web_fetcher import fetch_urls_async
 
-try:
-    from content_parser import extract_content
-except ImportError:
-    sys.path.insert(0, _common_dir)
-    from content_parser import extract_content
+from content_parser import extract_content
 
-try:
-    from markdown_writer import save_search_report, save_summary
-except ImportError:
-    sys.path.insert(0, _common_dir)
-    from markdown_writer import save_search_report, save_summary
+from markdown_writer import save_search_report, save_summary
 
 try:
     from bs4 import BeautifulSoup
@@ -71,6 +56,44 @@ except ImportError:
 # ============ 配置 ============
 
 DEFAULT_OUTPUT_DIR = os.path.join(os.path.expanduser('~'), 'Downloads', 'baidu_search')
+
+# 跳过的域名（视频、图片、下载站等）
+SKIP_DOMAINS = [
+    # 视频网站
+    'bilibili.com', 'www.bilibili.com',
+    'youtube.com', 'youtu.be',
+    'youku.com', 'v.youku.com',
+    'iqiyi.com', 'www.iqiyi.com',
+    'qq.com/video', 'v.qq.com',
+    'douyin.com', 'www.douyin.com',
+    'kuaishou.com', 'www.kuaishou.com',
+    'acfun.cn', 'www.acfun.cn',
+    'ted.com',
+    # 图片网站
+    'image.baidu.com', 'tupian.baidu.com',
+    'images.baidu.com',
+    'pixiv.net',
+    'unsplash.com',
+    'pinterest.com',
+    'instagram.com',
+    'flickr.com',
+    # 文件下载站
+    'download.csdn.net',
+    'pan.baidu.com',
+    'wenku.baidu.com',
+    # 其他无文章内容的站点
+    'music.163.com',
+    'weibo.com',  # 微博内容太短
+]
+
+
+def should_skip_url(url):
+    """检查URL是否应该跳过（视频、图片、下载站等）"""
+    url_lower = url.lower()
+    for domain in SKIP_DOMAINS:
+        if domain in url_lower:
+            return True
+    return False
 
 
 def generate_session_id():
@@ -176,10 +199,13 @@ async def search_async(query, limit=50):
                     title_tag = item.select_one('h3 a')
                     if title_tag:
                         title = title_tag.get_text(strip=True)
-                        if '广告' not in title and '推广' not in title:
+                        url = title_tag.get('href', '')
+
+                        # 过滤广告、推广、视频/图片网站
+                        if '广告' not in title and '推广' not in title and not should_skip_url(url):
                             result = {
                                 'title': title,
-                                'url': title_tag.get('href', ''),
+                                'url': url,
                                 'abstract': (item.select_one('.c-abstract') or item).get_text(strip=True)[:300],
                                 'score': 1.0
                             }
@@ -283,11 +309,25 @@ async def main_async():
 
     print(f"筛选: 分数前{args.top_percent}% + 最低{args.min_score}分 = {fetch_count}条", file=sys.stderr)
 
-    # 抓取网页（异步并行）
-    urls = [r['url'] for r in results[:fetch_count]]
-    fetched = await fetch_urls_async(urls, save_dir=session_dir, workers=args.workers)
+    # 抓取网页（异步并行）- 过滤掉视频/图片网站
+    urls_to_fetch = []
+    skipped_urls = []
+    for r in results[:fetch_count]:
+        if should_skip_url(r['url']):
+            skipped_urls.append(r['url'])
+        else:
+            urls_to_fetch.append(r['url'])
+
+    if skipped_urls:
+        print(f"跳过 {len(skipped_urls)} 个视频/图片/下载网站", file=sys.stderr)
+
+    if not urls_to_fetch:
+        print("无有效URL可抓取", file=sys.stderr)
+        return
+
+    fetched = await fetch_urls_async(urls_to_fetch, save_dir=session_dir, workers=args.workers)
     success_count = sum(1 for r in fetched if r.get('success'))
-    print(f"抓取成功: {success_count}/{len(urls)}", file=sys.stderr)
+    print(f"抓取成功: {success_count}/{len(urls_to_fetch)}", file=sys.stderr)
 
     # 生成报告
     if success_count > 0:
