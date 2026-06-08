@@ -3,9 +3,10 @@
 
 核心思路：
 1. PaddleOCR 检测所有文字区域及其边界框
-2. OpenCV 检测图形元素（矩形框、连线）
-3. 合并分析：判断是纯文字、纯图形还是混合
-4. 混合类：裁剪出图形区域，保留文字标注
+2. 识别图注文字（"图1 xxx"、"图2 xxx"）确定图形下边界
+3. OpenCV 检测图形元素（矩形框、连线）确定图形左右边界
+4. 合并分析：判断是纯文字、纯图形还是混合
+5. 混合类：裁剪出图形区域，保留文字标注
 
 用法:
     python crop_graphics.py <图片路径> <输出目录>
@@ -17,20 +18,57 @@
 
 import os
 import sys
+import re
 import json
 import cv2
 import numpy as np
 from paddleocr import PaddleOCR
 
 
+def is_skip_text(text):
+    """
+    判断文字是否应该跳过（页码、页脚、重复版本号等）
+    """
+    text = text.strip()
+    if not text:
+        return True
+
+    # 纯数字（页码）
+    if re.match(r'^[\d\s\-—]+$', text):
+        return True
+
+    # 版本号模式：V01xxxxx_20251124 或类似格式
+    if re.match(r'^V\d+[A-Z0-9]*_\d{8}', text, re.IGNORECASE):
+        return True
+
+    # 短横线分隔符（页眉/页脚装饰线）
+    if re.match(r'^[\-—_]{3,}$', text):
+        return True
+
+    # 纯罗马数字或字母页码（I, II, III, IV, A, B, C）
+    if re.match(r'^[IVXLCDM]+$', text):
+        return True
+
+    # 日期格式（通常是页脚日期）
+    if re.match(r'^\d{4}[-/]\d{1,2}[-/]\d{1,2}$', text):
+        return True
+
+    return False
+
+
 def detect_text_regions(img_path, ocr):
-    """OCR 检测所有文字区域"""
+    """OCR 检测所有文字区域（自动跳过页码、页脚、版本号）"""
     result = ocr.ocr(img_path, cls=True)
     regions = []
     if result and result[0]:
         for line in result[0]:
             bbox_pts = line[0]  # 四个角点
             text = line[1][0]
+
+            # 跳过页码、页脚、版本号等
+            if is_skip_text(text):
+                continue
+
             confidence = line[1][1]
             xs = [int(p[0]) for p in bbox_pts]
             ys = [int(p[1]) for p in bbox_pts]
@@ -46,14 +84,25 @@ def detect_text_regions(img_path, ocr):
     return regions
 
 
+def find_figure_caption(text_regions):
+    """
+    查找图注文字（"图1 xxx"、"图2 xxx"、"Figure 1 xxx"）
+    返回图注的边界框 [x, y, w, h] 或 None
+    """
+    # 匹配模式：图+数字 或 Figure+数字
+    pattern = re.compile(r'^[\s]*(图|Fig\.?|Figure)\s*\d+')
+
+    for tr in text_regions:
+        text = tr["text"].strip()
+        if pattern.match(text):
+            return tr["bbox"]
+
+    return None
+
+
 def detect_graphic_regions(img):
     """
     使用 OpenCV 检测图形区域（流程图框、连线、形状）
-
-    策略：
-    1. 边缘检测找线条
-    2. 霍夫线变换找直线（流程图连接线）
-    3. 轮廓检测找矩形框
     """
     gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
     h, w = gray.shape
@@ -85,7 +134,6 @@ def detect_graphic_regions(img):
         aspect_ratio = bw / float(bh)
 
         # 排除纯文字轮廓（文字通常较窄或较小）
-        # 保留：较大的块、近似方形的块、细长的线
         is_graphic = False
 
         # 大矩形/方形 → 流程图框
@@ -105,11 +153,7 @@ def detect_graphic_regions(img):
 
 
 def analyze_layout(text_regions, graphic_bboxes, img_w, img_h):
-    """
-    分析图片布局，判断类型
-
-    返回: ("pure_text" | "pure_graphic" | "mixed", details)
-    """
+    """分析图片布局，判断类型"""
     img_area = img_w * img_h
 
     # 计算文字覆盖面积
@@ -135,10 +179,6 @@ def analyze_layout(text_regions, graphic_bboxes, img_w, img_h):
     graphic_area = np.count_nonzero(graphic_covered)
     graphic_ratio = graphic_area / img_area
 
-    # 文字和图形的重叠区域（文字标注在图形上）
-    overlap = np.count_nonzero(text_covered & graphic_covered)
-    overlap_ratio = overlap / img_area
-
     # 判断类型
     if graphic_ratio > 0.3 and text_ratio < 0.15:
         layout_type = "pure_graphic"
@@ -147,35 +187,53 @@ def analyze_layout(text_regions, graphic_bboxes, img_w, img_h):
     elif graphic_ratio > 0.05 and text_ratio > 0.05:
         layout_type = "mixed"
     else:
-        # 默认：看哪个占比大
         layout_type = "pure_text" if text_ratio > graphic_ratio else "pure_graphic"
 
     return layout_type, {
         "text_ratio": round(text_ratio, 3),
         "graphic_ratio": round(graphic_ratio, 3),
-        "overlap_ratio": round(overlap_ratio, 3),
         "text_region_count": len(text_regions),
         "graphic_bbox_count": len(graphic_bboxes)
     }
 
 
-def compute_graphic_crop_bbox(graphic_bboxes, text_regions, img_w, img_h):
+def compute_graphic_crop_bbox(graphic_bboxes, figure_caption_bbox, img_w, img_h):
     """
     计算图形区域的裁剪边界框
 
-    策略：找到所有图形元素的包围盒，排除纯文字区域
+    策略：
+    1. 图注文字（"图1 xxx"）的 y 坐标作为图形下边界
+    2. 图形元素的左右边界作为裁剪的 x 范围
+    3. 顶部从图形元素的最小 y 开始
     """
-    if not graphic_bboxes:
+    if not graphic_bboxes and not figure_caption_bbox:
         return None
 
     # 合并所有图形边界框
-    min_x = min(g[0] for g in graphic_bboxes)
-    min_y = min(g[1] for g in graphic_bboxes)
-    max_x = max(g[0] + g[2] for g in graphic_bboxes)
-    max_y = max(g[1] + g[3] for g in graphic_bboxes)
+    if graphic_bboxes:
+        min_x = min(g[0] for g in graphic_bboxes)
+        min_y = min(g[1] for g in graphic_bboxes)
+        max_x = max(g[0] + g[2] for g in graphic_bboxes)
+        max_y = max(g[1] + g[3] for g in graphic_bboxes)
+    else:
+        min_x, min_y, max_x, max_y = 0, 0, img_w, img_h
+
+    # 如果有图注，用图注的 y 坐标作为下边界
+    if figure_caption_bbox:
+        caption_x, caption_y, caption_w, caption_h = figure_caption_bbox
+        # 图形区域到图注上方为止
+        max_y = caption_y
+        # 图注通常居中，图形宽度可能比图注宽
+        # 使用图形元素的宽度，如果没有则用图注宽度
+        if graphic_bboxes:
+            min_x = min(min_x, caption_x - 20)
+            max_x = max(max_x, caption_x + caption_w + 20)
+        else:
+            min_x = max(0, caption_x - 20)
+            max_x = min(img_w, caption_x + caption_w + 20)
 
     # 加边距
-    margin = 15
+    margin = 10
     crop_x = max(0, min_x - margin)
     crop_y = max(0, min_y - margin)
     crop_w = min(img_w - crop_x, (max_x - min_x) + 2 * margin)
@@ -197,16 +255,19 @@ def crop_and_annotate(img_path, output_dir):
     h, w = img.shape[:2]
     name = os.path.splitext(os.path.basename(img_path))[0]
 
-    # 初始化 OCR（只初始化一次）
+    # 初始化 OCR
     ocr = PaddleOCR(use_angle_cls=True, lang="ch", show_log=False)
 
     # 步骤1: 检测文字区域
     text_regions = detect_text_regions(img_path, ocr)
 
-    # 步骤2: 检测图形区域
+    # 步骤2: 查找图注文字
+    figure_caption = find_figure_caption(text_regions)
+
+    # 步骤3: 检测图形区域
     graphic_bboxes = detect_graphic_regions(img_rgb)
 
-    # 步骤3: 分析布局
+    # 步骤4: 分析布局
     layout_type, layout_info = analyze_layout(text_regions, graphic_bboxes, w, h)
 
     result = {
@@ -218,16 +279,22 @@ def crop_and_annotate(img_path, output_dir):
         "graphic_bboxes": graphic_bboxes,
     }
 
+    if figure_caption:
+        result["figure_caption"] = {
+            "bbox": figure_caption,
+            "text": next((tr["text"] for tr in text_regions if tr["bbox"] == figure_caption), "")
+        }
+
     if layout_type == "mixed":
         # 混合类：裁剪图形区域
-        crop_bbox = compute_graphic_crop_bbox(graphic_bboxes, text_regions, w, h)
+        crop_bbox = compute_graphic_crop_bbox(graphic_bboxes, figure_caption, w, h)
         if crop_bbox:
             cx, cy, cw, ch = crop_bbox
             cropped = img_rgb[cy:cy + ch, cx:cx + cw]
             graphic_path = os.path.join(output_dir, f"{name}_graphic.png")
             cv2.imwrite(graphic_path, cv2.cvtColor(cropped, cv2.COLOR_RGB2BGR))
 
-            # 调整文字区域坐标为相对于裁剪图的坐标
+            # 调整文字区域坐标
             for tr in result["text_regions"]:
                 tr["bbox_relative"] = [
                     tr["bbox"][0] - cx,
@@ -235,7 +302,6 @@ def crop_and_annotate(img_path, output_dir):
                     tr["bbox"][2],
                     tr["bbox"][3]
                 ]
-                # 判断文字是否在图形区域内
                 tx, ty = tr["bbox"][0], tr["bbox"][1]
                 tr["is_on_graphic"] = (cx <= tx <= cx + cw and cy <= ty <= cy + ch)
 
@@ -244,9 +310,10 @@ def crop_and_annotate(img_path, output_dir):
             result["cropped_size"] = [cw, ch]
 
             print(f"  类型: 混合类 (文字{layout_info['text_ratio']:.0%} + 图形{layout_info['graphic_ratio']:.0%})")
+            if figure_caption:
+                print(f"  图注: \"{result['figure_caption']['text']}\" @ y={figure_caption[1]}")
             print(f"  图形区域: [{cx}, {cy}, {cw}x{ch}]")
             print(f"  文字区域: {len(text_regions)} 个")
-            # 打印文字标注
             for i, tr in enumerate(text_regions[:10]):
                 pos = tr["bbox"]
                 print(f"    标注[{i+1}]: \"{tr['text']}\" @ ({pos[0]}, {pos[1]})")
@@ -258,16 +325,12 @@ def crop_and_annotate(img_path, output_dir):
             print(f"  类型: 纯文字 (文字{layout_info['text_ratio']:.0%})")
 
     elif layout_type == "pure_graphic":
-        # 纯图形：保留原图，只标注文字
         print(f"  类型: 纯图形 (图形{layout_info['graphic_ratio']:.0%})")
         print(f"  文字标注: {len(text_regions)} 个")
         for i, tr in enumerate(text_regions[:5]):
             print(f"    标注[{i+1}]: \"{tr['text']}\" @ ({tr['bbox'][0]}, {tr['bbox'][1]})")
-
     else:
-        # 纯文字：不需要裁剪
         print(f"  类型: 纯文字 (文字{layout_info['text_ratio']:.0%})")
-        # 直接输出OCR文字即可，不需要额外处理
 
     # 保存标注 JSON
     json_path = os.path.join(output_dir, f"{name}_annotated.json")
