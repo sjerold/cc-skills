@@ -1,7 +1,7 @@
 ---
 name: docx-img2md
 description: 将包含图片的docx文档转换为Markdown格式。从docx提取图片到文字版/<文档名>/pic目录，每个docx独立输出避免冲突，混合类图片用crop_graphics.py裁剪图形+文字标注，纯图形类二次确认后保留原图引用。当用户说"docx转md"、"docx图片转文字"、"转换docx"、"识别docx图片"、"把docx里的图片转成文字"时触发。
-version: 2.0.0
+version: 2.2.0
 ---
 
 # Docx图片转Markdown 技能
@@ -20,12 +20,18 @@ version: 2.0.0
 
 用 Python 脚本从 docx 中提取所有嵌入图片到 `文字版/<文档名>/pic/` 目录：
 
-```python
-import sys
-sys.path.insert(0, r'C:\Users\admin\.claude\skills\docx-img2md')
-from extract_images import extract_images
-extract_images('<docx文件路径>')
+**完整命令（必须使用 conda 的 dsbot_env 环境）：**
+
+```bash
+# Windows PowerShell 环境
+cmd /c "call conda activate dsbot_env && python C:\Users\admin\.claude\plugins\docx-img2md\skills\docx-img2md\extract_images.py <docx文件路径>"
 ```
+
+**️ 绝对禁止：**
+- ❌ 不允许自己编写任何 Python 脚本来提取图片
+- ❌ 不允许使用其他 Python 环境或依赖
+- ❌ 不允许修改 extract_images.py 脚本
+- ❌ 必须使用上述完整命令，包含完整的 conda 环境激活路径
 
 ### 2. 逐张识别图片写入 md
 
@@ -43,11 +49,22 @@ images = sorted(pic目录.glob("*.png"))
 
 # 严格按顺序逐张处理，一张完成后再处理下一张
 for img in images:
+    # 0. 【必须】运行进度检查脚本（基于文件状态，不依赖模型记忆）
+    cmd /c "call conda activate dsbot_env && python C:\Users\admin\.claude\plugins\docx-img2md\skills\docx-img2md\check_progress.py <md文件路径>"
+    # 如果输出 SELF_CHECK: required，必须先执行自检
+    # 如果输出 SELF_CHECK: skip，继续处理
+
     # 1. 用 Agent() 读取并识别这一张图片
     # 2. 等 Agent 返回后，立即用 Edit 追加结果到 md
     # 3. 再处理下一张
     # 绝对不要并行启动多个 Agent
 ```
+
+**进度检查脚本说明**：
+- `check_progress.py` 统计 md 文件中已有的图片引用数量，基于**文件系统状态**判断是否需要自检
+- 返回 `SELF_CHECK: required` 时 → 必须输出自检清单并确认通过
+- 返回 `SELF_CHECK: skip` 时 → 输出下一张自检的触发条件，继续处理
+- **绝对禁止跳过此步骤或用模型自行计数代替**
 
 **子 Agent 行为保证：**
 - 每次只启动 **一个** Agent，处理 **一张** 图片
@@ -124,7 +141,7 @@ for img in images:
         ├── pic/             # 该docx的图片
         │   ├── image_001.png
         │   ├── image_002.png
-        │   ── ...
+        ── ...
         └── <文档名>.md       # 转换结果
 ```
 
@@ -170,12 +187,19 @@ for img in images:
 
 混合类图片（既有文字又有流程图/图表）使用 `crop_graphics.py` 脚本处理：
 
-```python
-import sys
-sys.path.insert(0, r'C:\Users\admin\.claude\plugins\docx-img2md\skills\docx-img2md')
-from crop_graphics import crop_and_annotate
-crop_and_annotate('<图片路径>', '<文字版>/<文档名>/pic/')
+**完整命令（必须使用 conda 的 dsbot_env 环境）：**
+
+```bash
+# Windows PowerShell 环境
+cmd /c "call conda activate dsbot_env && python C:\Users\admin\.claude\plugins\docx-img2md\skills\docx-img2md\crop_graphics.py <图片路径> 文字版/<文档名>/pic/"
 ```
+
+**️ 绝对禁止：**
+- ❌ 不允许自己编写任何 Python 脚本来处理图片
+- ❌ 不允许使用其他 Python 环境或依赖
+- ❌ 不允许修改 crop_graphics.py 脚本
+- ❌ 不允许直接调用 OCR 库或 OpenCV 自行处理
+- ❌ 必须使用上述完整命令，包含完整的 conda 环境激活路径
 
 **脚本功能**：
 1. PaddleOCR 检测所有文字区域及边界框
@@ -204,6 +228,44 @@ crop_and_annotate('<图片路径>', '<文字版>/<文档名>/pic/')
 ```
 
 文字内容按从上到下、从左到右的顺序排列，图形引用放在最后。
+
+### 5. 持续检测/框架保持（必须执行）
+
+**每次处理图片前，必须运行 `check_progress.py` 进度检查脚本**：
+
+```bash
+cmd /c "call conda activate dsbot_env && python C:\Users\admin\.claude\plugins\docx-img2md\skills\docx-img2md\check_progress.py <md文件路径>"
+```
+
+**根据脚本返回结果决定行为**：
+
+| 返回 | 行为 |
+|------|------|
+| `SELF_CHECK: required` | 必须执行自检，通过后才能继续处理下一张 |
+| `SELF_CHECK: skip` | 直接继续处理下一张图片 |
+
+**自检清单（SELF_CHECK: required 时执行）**：
+- [ ] 是否使用了 `Agent()` 调用识别图片（而非主 session 直接 Read）？
+- [ ] 是否严格单线程串行（没有并行启动多个 Agent）？
+- [ ] 子 Agent 是否只处理了一张图片就返回？
+- [ ] 是否使用了 conda `dsbot_env` 环境执行脚本（而非系统默认 python）？
+- [ ] 是否使用了 Skill 提供的脚本（extract_images.py / crop_graphics.py / check_progress.py），而非自己编写？
+- [ ] 图片是否按文件名排序，顺序没有打乱？
+- [ ] 图片引用路径是否为相对路径 `pic/xxx.png`？
+
+**自检通过后**：
+- 输出一行确认：`[框架检查] 已通过，继续处理下一张图片`
+- 继续处理下一张图片
+
+**自检未通过时**：
+- 立即纠正偏差
+- 回到 Skill 规定的流程
+
+**全程禁止**：
+- ❌ 不要在处理过程中"即兴"写脚本、装依赖、换工具
+- ❌ 不要因为上下文大而改变流程（即使上下文很大，也必须按 Skill 规定的方式处理）
+- ❌ 不要合并步骤或优化流程，严格按 Skill 规定一步步来
+- ❌ **禁止用模型自行计数代替 `check_progress.py` 脚本**——必须每次运行脚本，基于文件状态判断
 
 ## Markdown 换行规范（重要）
 
