@@ -1,7 +1,7 @@
 {
   "name": "docx-img2md",
-  "description": "docx转md技能，混合类图片裁剪图形+文字标注，支持流程图文档转换",
-  "version": "1.9.0",
+  "description": "docx转md技能，严格单线程串行处理图片，混合类图片裁剪图形+文字标注，自动跳过页码页脚版本号",
+  "version": "2.0.0",
   "author": {
     "name": "sjerold",
     "url": "https://github.com/sjerold"
