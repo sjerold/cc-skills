@@ -1,7 +1,7 @@
 ---
 name: docx-img2md
 description: 将包含图片的docx文档转换为Markdown格式。从docx提取图片到文字版/<文档名>/pic目录，每个docx独立输出避免冲突，混合类图片用crop_graphics.py裁剪图形+文字标注，纯图形类二次确认后保留原图引用。当用户说"docx转md"、"docx图片转文字"、"转换docx"、"识别docx图片"、"把docx里的图片转成文字"时触发。
-version: 2.2.0
+version: 2.2.1
 ---
 
 # Docx图片转Markdown 技能
@@ -50,7 +50,7 @@ images = sorted(pic目录.glob("*.png"))
 # 严格按顺序逐张处理，一张完成后再处理下一张
 for img in images:
     # 0. 【必须】运行进度检查脚本（基于文件状态，不依赖模型记忆）
-    cmd /c "call conda activate dsbot_env && python C:\Users\admin\.claude\plugins\docx-img2md\skills\docx-img2md\check_progress.py <md文件路径>"
+    cmd /c "call conda activate dsbot_env && python C:\Users\admin\.claude\plugins\docx-img2md\skills\docx-img2md\check_progress.py <md文件路径> 2"
     # 如果输出 SELF_CHECK: required，必须先执行自检
     # 如果输出 SELF_CHECK: skip，继续处理
 
@@ -72,6 +72,44 @@ for img in images:
 - 子 Agent 先判断图片类型（见下方"图片分类规则"）
 - 子 Agent 完成后自动返回结果，base64 数据随子 Agent 上下文一起销毁
 - 主 session 只保留子 Agent 返回的简短结果（几百字节）
+
+**子 Agent Prompt 模板（每次调用必须包含以下准则）：**
+
+```
+请识别这张图片，并按以下准则处理：
+
+【图片来源】docx 文档中的截图/扫描件
+【处理方式】
+1. 判断图片类型：
+   - 纯文字类（截图/扫描件/文档正文）：直接 OCR 识别所有文字，按从上到下、从左到右顺序输出
+   - 混合类（文字 + 流程图/图表）：OCR 识别文字，同时保留原图引用
+   - 纯图形类（纯流程图/架构图，无实质文字）：仅返回 "![image](pic/<图片文件名>)"
+
+2. 图片分类必须经过二次确认：
+   - 如果初步判断含图形元素，必须确认图形占比是否 > 50%
+   - 以文字/表格为主、只有少量装饰图标的 → 归类为纯文字类
+
+3. OCR 文字识别时跳过：
+   - 纯数字页码：1, 12, - 3 -
+   - 版本号：V01xxxxx_20251124
+   - 分隔线：---, ———
+   - 罗马数字页码：I, II, III
+   - 日期格式：2025-11-24
+
+4. 跨页表格处理：
+   - 如果表格被截断（底部无完整边框线），只识别当前页的数据行
+   - 不要重复表头
+
+【输出格式】
+- 纯文字类：直接输出识别到的文字内容
+- 混合类：先输出文字内容，最后单独一行输出 ![image](pic/<图片文件名>)
+- 纯图形类：只输出一行 ![image](pic/<图片文件名>)
+
+【禁止行为】
+- ❌ 不要编写任何脚本
+- ❌ 不要调用 OCR 库
+- ❌ 只处理这一张图片，不要读取其他图片
+```
 
 **绝对不能做的：**
 - ❌ 不要创建 Team 来协调图片识别
@@ -234,7 +272,7 @@ cmd /c "call conda activate dsbot_env && python C:\Users\admin\.claude\plugins\d
 **每次处理图片前，必须运行 `check_progress.py` 进度检查脚本**：
 
 ```bash
-cmd /c "call conda activate dsbot_env && python C:\Users\admin\.claude\plugins\docx-img2md\skills\docx-img2md\check_progress.py <md文件路径>"
+cmd /c "call conda activate dsbot_env && python C:\Users\admin\.claude\plugins\docx-img2md\skills\docx-img2md\check_progress.py <md文件路径> 2"
 ```
 
 **根据脚本返回结果决定行为**：
