@@ -1,0 +1,24 @@
+{
+  "name": "docx-img2md",
+  "description": "将包含图片的docx文档转换为Markdown格式。从docx提取图片，逐张识别文字写入md，流程图保留图片引用。",
+  "version": "1.7.0",
+  "author": {
+    "name": "sjerold",
+    "url": "https://github.com/sjerold"
+  },
+  "repository": "https://github.com/sjerold/cc-skills.git",
+  "license": "MIT",
+  "skills": ["./skills/docx-img2md"],
+  "scripts": {
+    "post-install": "pip install python-docx Pillow"
+  },
+  "keywords": [
+    "docx",
+    "markdown",
+    "ocr",
+    "image",
+    "convert",
+    "文档转换",
+    "图片识别"
+  ]
+}
