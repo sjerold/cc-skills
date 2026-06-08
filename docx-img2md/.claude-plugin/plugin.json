@@ -1,7 +1,7 @@
 {
   "name": "docx-img2md",
-  "description": "将包含图片的docx文档转换为Markdown格式。混合类图片同时保留OCR文字和原图引用，纯图形类二次确认后保留原图。",
-  "version": "1.8.0",
+  "description": "docx转md技能，混合类图片裁剪图形+文字标注，支持流程图文档转换",
+  "version": "1.9.0",
   "author": {
     "name": "sjerold",
     "url": "https://github.com/sjerold"

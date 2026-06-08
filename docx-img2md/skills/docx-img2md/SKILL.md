@@ -1,7 +1,7 @@
 ---
 name: docx-img2md
-description: 将包含图片的docx文档转换为Markdown格式。从docx提取图片到文字版/<文档名>/pic目录，每个docx独立输出避免冲突，逐张读取图片识别文字写入md，混合类图片同时保留原图引用，纯图形类图片二次确认后保留原图引用。当用户说"docx转md"、"docx图片转文字"、"转换docx"、"识别docx图片"、"把docx里的图片转成文字"时触发。
-version: 1.8.0
+description: 将包含图片的docx文档转换为Markdown格式。从docx提取图片到文字版/<文档名>/pic目录，每个docx独立输出避免冲突，混合类图片用crop_graphics.py裁剪图形+文字标注，纯图形类二次确认后保留原图引用。当用户说"docx转md"、"docx图片转文字"、"转换docx"、"识别docx图片"、"把docx里的图片转成文字"时触发。
+version: 1.9.0
 ---
 
 # Docx图片转Markdown 技能
@@ -161,21 +161,38 @@ for i in range(0, len(images), batch_size):
 | 分类 | 处理方式 |
 |------|---------|
 | 纯文字类 | OCR 识别文字，写入 md |
-| 混合类（文字+图形） | OCR 识别文字写入 md + 保留原图引用 `![image](pic/xxx.png)` |
+| 混合类（文字+图形） | 用 `crop_graphics.py` 裁剪图形区域 + OCR 文字标注 + 裁剪图引用 |
 | 纯图形类 | 仅保留原图引用 `![image](pic/xxx.png)` |
 
-### 混合类图片的写入格式
+### 混合类图片的处理流程
 
-混合类图片在 md 中的写入顺序：
-1. 先写 OCR 识别出的文字内容
-2. 文字内容下方插入原图引用
+混合类图片（既有文字又有流程图/图表）使用 `crop_graphics.py` 脚本处理：
+
+```python
+import sys
+sys.path.insert(0, r'C:\Users\admin\.claude\plugins\docx-img2md\skills\docx-img2md')
+from crop_graphics import crop_and_annotate
+crop_and_annotate('<图片路径>', '<文字版>/<文档名>/pic/')
 ```
-[OCR 识别的文字内容]
 
-![image](pic/xxx.png)
+**脚本功能**：
+1. PaddleOCR 检测所有文字区域及边界框
+2. OpenCV 检测图形元素（流程?框、连线、形状）
+3. 分析布局类型（纯文字/纯图形/混合）
+4. 混合类：裁剪出图形区域，输出标注 JSON
+
+**输出文件**：
+- `xxx_graphic.png` — 裁剪后的纯图形部分（去除文字区域）
+- `xxx_annotated.json` — 文字区域标注（含坐标、文字内容）
+
+**md 写入格式**：
+```
+[OCR 识别的文字内容，按坐标排序]
+
+![流程图](pic/xxx_graphic.png)
 ```
 
-这样既能编辑文字，又能保留原始图表的完整视觉信息。
+文字内容按从上到下、从左到右的顺序排列，图形引用放在最后。
 
 ## Markdown 换行规范（重要）
 
