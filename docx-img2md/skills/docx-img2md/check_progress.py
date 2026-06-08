@@ -44,5 +44,5 @@ if __name__ == "__main__":
         sys.exit(1)
 
     md_path = sys.argv[1]
-    interval = int(sys.argv[2]) if len(sys.argv) > 2 else 2
+    interval = int(sys.argv[2]) if len(sys.argv) > 2 else 5
     check_progress(md_path, interval)

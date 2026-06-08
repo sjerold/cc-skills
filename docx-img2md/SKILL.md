@@ -50,7 +50,7 @@ images = sorted(pic目录.glob("*.png"))
 # 严格按顺序逐张处理，一张完成后再处理下一张
 for img in images:
     # 0. 【必须】运行进度检查脚本（基于文件状态，不依赖模型记忆）
-    cmd /c "call conda activate dsbot_env && python C:\Users\admin\.claude\plugins\docx-img2md\skills\docx-img2md\check_progress.py <md文件路径> 2"
+    cmd /c "call conda activate dsbot_env && python C:\Users\admin\.claude\plugins\docx-img2md\skills\docx-img2md\check_progress.py <md文件路径> 5"
     # 如果输出 SELF_CHECK: required，必须先执行自检
     # 如果输出 SELF_CHECK: skip，继续处理
 
@@ -272,7 +272,7 @@ cmd /c "call conda activate dsbot_env && python C:\Users\admin\.claude\plugins\d
 **每次处理图片前，必须运行 `check_progress.py` 进度检查脚本**：
 
 ```bash
-cmd /c "call conda activate dsbot_env && python C:\Users\admin\.claude\plugins\docx-img2md\skills\docx-img2md\check_progress.py <md文件路径> 2"
+cmd /c "call conda activate dsbot_env && python C:\Users\admin\.claude\plugins\docx-img2md\skills\docx-img2md\check_progress.py <md文件路径> 5"
 ```
 
 **根据脚本返回结果决定行为**：
