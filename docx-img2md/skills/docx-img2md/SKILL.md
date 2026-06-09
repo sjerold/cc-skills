@@ -1,7 +1,7 @@
 ---
 name: docx-img2md
 description: 将包含图片的docx文档转换为Markdown格式。从docx提取图片到文字版/<文档名>/pic目录，每个docx独立输出避免冲突，混合类图片用crop_graphics.py裁剪图形+文字标注，纯图形类二次确认后保留原图引用。当用户说"docx转md"、"docx图片转文字"、"转换docx"、"识别docx图片"、"把docx里的图片转成文字"时触发。
-version: 2.3.1
+version: 2.3.2
 ---
 
 # Docx图片转Markdown 技能
@@ -60,11 +60,11 @@ cmd /c "call conda activate dsbot_env && python C:\Users\admin\.claude\plugins\d
 - ❌ 不允许使用 Bash 执行命令（Bash 下 cmd /c 无法正确工作）
 - ❌ 必须使用 PowerShell 执行上述命令
 
-### 2. 逐张识别图片写入 md
+### 2. 批次识别图片写入 md
 
 **⚠️ 使用外部 LLM API 识别图片（kimi-k2-5）**
 
-图片识别通过 `external_ocr.py` 脚本调用 kimi API 完成，提示词从 SKILL.md 提取传入脚本。
+图片识别通过 `external_ocr.py` 脚本调用 kimi API 完成，支持批次处理（每次2张图片并行）。
 
 **环境变量配置（一次性）**：
 
@@ -72,38 +72,52 @@ cmd /c "call conda activate dsbot_env && python C:\Users\admin\.claude\plugins\d
 $env:SP_TOKEN = "your-api-key"
 ```
 
-**正确做法：严格串行单线程处理**
+**正确做法：批次处理（每批2张）**
 
-对 `文字版/<文档名>/pic/` 目录下的图片，**严格按文件名排序，逐张串行处理**：
+对 `文字版/<文档名>/pic/` 目录下的图片，**按文件名排序，每2张一批处理**：
 
 ```
 # 获取图片列表，按文件名排序
 images = sorted(pic目录.glob("*.png"))
 
-# 严格按顺序逐张处理
-for img in images:
-    # 1. 调用 external_ocr.py 识别图片（必须用 PowerShell，必须传入提示词）
-    cmd /c "call conda activate dsbot_env && python C:\Users\admin\.claude\plugins\docx-img2md\skills\docx-img2md\external_ocr.py --image <图片路径> --prompt <下方提示词模板>"
+# 每批处理2张图片
+for i in range(0, len(images), 2):
+    batch = images[i:i+2]  # 取2张图片
     
-    # 2. 解析返回结果：
-    #    - 第一行是图片类型：[纯文字] 或 [混合] 或 [纯图形]
-    #    - 后续是 OCR 文字内容
-    #    - 混合/纯图形类最后有 [需要原图引用]
+    # 1. 调用 external_ocr.py 批量识别（传入2张图片）
+    cmd /c "call conda activate dsbot_env && python C:\Users\admin\.claude\plugins\docx-img2md\skills\docx-img2md\external_ocr.py --images <图片1路径> <图片2路径> --prompt <下方提示词模板>"
     
-    # 3. 根据类型写入 md：
+    # 2. 解析返回结果（每张图片单独输出）：
+    #    === <图片名> ===
+    #    [纯文字] 或 [混合] 或 [纯图形]
+    #    OCR 文字内容...
+    #    [需要原图引用]  (混合/纯图形类)
+    
+    # 3. 根据类型分别写入 md：
     #    - 纯文字类：直接追加 OCR 内容
     #    - 混合类：追加 OCR 内容 + 原图引用 ![image](pic/xxx.png)
     #    - 纯图形类：只追加原图引用
     
-    # 4. 继续处理下一张（绝对不要并行）
+    # 4. 处理下一批
 ```
+
+**批次处理优势**：
+- 每次并行处理2张图片，速度提升约2倍
+- 脚本内部使用线程池，最多2个并发请求
+- 保持顺序：按文件名排序分批，输出按图片名标识
 
 **external_ocr.py 输出格式**：
 
 ```
+=== image_001.png ===
 [纯文字] 或 [混合] 或 [纯图形]
 OCR 文字内容...
 [需要原图引用]  (仅混合/纯图形类有此标记)
+
+=== image_002.png ===
+[纯文字] 或 [混合] 或 [纯图形]
+OCR 文字内容...
+[需要原图引用]
 ```
 
 **图片识别提示词模板（每次调用必须传入）**：
