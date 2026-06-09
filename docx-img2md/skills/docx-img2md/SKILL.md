@@ -1,7 +1,7 @@
 ---
 name: docx-img2md
 description: 将包含图片的docx文档转换为Markdown格式。从docx提取图片到文字版/<文档名>/pic目录，每个docx独立输出避免冲突，混合类图片用crop_graphics.py裁剪图形+文字标注，纯图形类二次确认后保留原图引用。当用户说"docx转md"、"docx图片转文字"、"转换docx"、"识别docx图片"、"把docx里的图片转成文字"时触发。
-version: 2.3.2
+version: 2.3.3
 ---
 
 # Docx图片转Markdown 技能
@@ -64,7 +64,13 @@ cmd /c "call conda activate dsbot_env && python C:\Users\admin\.claude\plugins\d
 
 **⚠️ 使用外部 LLM API 识别图片（kimi-k2-5）**
 
-图片识别通过 `external_ocr.py` 脚本调用 kimi API 完成，支持批次处理（每次2张图片并行）。
+图片识别通过 `external_ocr.py` 脚本调用 kimi API 完成。
+
+**⚠️ 强制要求：单线程批次处理**
+
+- **必须单线程**：主流程必须单线程顺序处理，每批处理完再处理下一批
+- **禁止多线程**：绝对禁止多线程并发处理多批图片
+- **批次内部并行**：脚本内部每批最多2张图片并行（线程池），但批次之间必须串行
 
 **环境变量配置（一次性）**：
 
@@ -72,39 +78,34 @@ cmd /c "call conda activate dsbot_env && python C:\Users\admin\.claude\plugins\d
 $env:SP_TOKEN = "your-api-key"
 ```
 
-**正确做法：批次处理（每批2张）**
+**正确做法：单线程批次处理（每批2张）**
 
-对 `文字版/<文档名>/pic/` 目录下的图片，**按文件名排序，每2张一批处理**：
+对 `文字版/<文档名>/pic/` 目录下的图片，**按文件名排序，单线程批次处理**：
 
 ```
 # 获取图片列表，按文件名排序
 images = sorted(pic目录.glob("*.png"))
 
-# 每批处理2张图片
+# 单线程：每批处理2张图片，一批完成后再处理下一批
 for i in range(0, len(images), 2):
-    batch = images[i:i+2]  # 取2张图片
+    batch = images[i:i+2]  # 取当前批次的2张图片
     
-    # 1. 调用 external_ocr.py 批量识别（传入2张图片）
+    # 1. 调用 external_ocr.py 处理这批图片（必须用 PowerShell）
     cmd /c "call conda activate dsbot_env && python C:\Users\admin\.claude\plugins\docx-img2md\skills\docx-img2md\external_ocr.py --images <图片1路径> <图片2路径> --prompt <下方提示词模板>"
     
-    # 2. 解析返回结果（每张图片单独输出）：
-    #    === <图片名> ===
-    #    [纯文字] 或 [混合] 或 [纯图形]
-    #    OCR 文字内容...
-    #    [需要原图引用]  (混合/纯图形类)
+    # 2. 等脚本返回后，解析结果写入 md
     
-    # 3. 根据类型分别写入 md：
-    #    - 纯文字类：直接追加 OCR 内容
-    #    - 混合类：追加 OCR 内容 + 原图引用 ![image](pic/xxx.png)
-    #    - 纯图形类：只追加原图引用
-    
-    # 4. 处理下一批
+    # 3. 继续处理下一批（单线程，禁止并发启动多个批次）
 ```
 
-**批次处理优势**：
-- 每次并行处理2张图片，速度提升约2倍
-- 脚本内部使用线程池，最多2个并发请求
-- 保持顺序：按文件名排序分批，输出按图片名标识
+**绝对禁止**：
+- ❌ 禁止多线程并发处理多批图片
+- ❌ 禁止同时启动多个 external_ocr.py 进程
+- ❌ 禁止跳过批次顺序处理
+
+**批次处理说明**：
+- 脚本内部每批最多2张图片并行（线程池），提升单批处理速度
+- 批次之间必须串行，保证图片顺序和结果一致性
 
 **external_ocr.py 输出格式**：
 
