@@ -1,7 +1,7 @@
 ---
 name: docx-img2md
 description: 将包含图片的docx文档转换为Markdown格式。从docx提取图片到文字版/<文档名>/pic目录，每个docx独立输出避免冲突，混合类图片用crop_graphics.py裁剪图形+文字标注，纯图形类二次确认后保留原图引用。当用户说"docx转md"、"docx图片转文字"、"转换docx"、"识别docx图片"、"把docx里的图片转成文字"时触发。
-version: 2.2.1
+version: 2.2.2
 ---
 
 # Docx图片转Markdown 技能
@@ -20,10 +20,10 @@ version: 2.2.1
 
 用 Python 脚本从 docx 中提取所有嵌入图片到 `文字版/<文档名>/pic/` 目录：
 
-**完整命令（必须使用 conda 的 dsbot_env 环境）：**
+**完整命令（必须使用 conda 的 dsbot_env 环境，通过 PowerShell 执行）：**
 
-```bash
-# Windows PowerShell 环境
+```powershell
+# Windows PowerShell 环境（必须用 PowerShell，不是 Bash）
 cmd /c "call conda activate dsbot_env && python C:\Users\admin\.claude\plugins\docx-img2md\skills\docx-img2md\extract_images.py <docx文件路径>"
 ```
 
@@ -31,7 +31,8 @@ cmd /c "call conda activate dsbot_env && python C:\Users\admin\.claude\plugins\d
 - ❌ 不允许自己编写任何 Python 脚本来提取图片
 - ❌ 不允许使用其他 Python 环境或依赖
 - ❌ 不允许修改 extract_images.py 脚本
-- ❌ 必须使用上述完整命令，包含完整的 conda 环境激活路径
+- ❌ 不允许使用 Bash 执行命令（Bash 下 cmd /c 无法正确工作）
+- ❌ 必须使用 PowerShell 执行上述命令
 
 ### 2. 逐张识别图片写入 md
 
@@ -50,6 +51,7 @@ images = sorted(pic目录.glob("*.png"))
 # 严格按顺序逐张处理，一张完成后再处理下一张
 for img in images:
     # 0. 【必须】运行进度检查脚本（基于文件状态，不依赖模型记忆）
+    # 注意：必须使用 PowerShell 执行，Bash 下 cmd /c 无法正确工作
     cmd /c "call conda activate dsbot_env && python C:\Users\admin\.claude\plugins\docx-img2md\skills\docx-img2md\check_progress.py <md文件路径> 5"
     # 如果输出 SELF_CHECK: required，必须先执行自检
     # 如果输出 SELF_CHECK: skip，继续处理
@@ -225,10 +227,10 @@ for img in images:
 
 混合类图片（既有文字又有流程图/图表）使用 `crop_graphics.py` 脚本处理：
 
-**完整命令（必须使用 conda 的 dsbot_env 环境）：**
+**完整命令（必须使用 conda 的 dsbot_env 环境，通过 PowerShell 执行）：**
 
-```bash
-# Windows PowerShell 环境
+```powershell
+# Windows PowerShell 环境（必须用 PowerShell，不是 Bash）
 cmd /c "call conda activate dsbot_env && python C:\Users\admin\.claude\plugins\docx-img2md\skills\docx-img2md\crop_graphics.py <图片路径> 文字版/<文档名>/pic/"
 ```
 
@@ -237,7 +239,8 @@ cmd /c "call conda activate dsbot_env && python C:\Users\admin\.claude\plugins\d
 - ❌ 不允许使用其他 Python 环境或依赖
 - ❌ 不允许修改 crop_graphics.py 脚本
 - ❌ 不允许直接调用 OCR 库或 OpenCV 自行处理
-- ❌ 必须使用上述完整命令，包含完整的 conda 环境激活路径
+- ❌ 不允许使用 Bash 执行命令（Bash 下 cmd /c 无法正确工作）
+- ❌ 必须使用 PowerShell 执行上述命令
 
 **脚本功能**：
 1. PaddleOCR 检测所有文字区域及边界框
@@ -269,9 +272,9 @@ cmd /c "call conda activate dsbot_env && python C:\Users\admin\.claude\plugins\d
 
 ### 5. 持续检测/框架保持（必须执行）
 
-**每次处理图片前，必须运行 `check_progress.py` 进度检查脚本**：
+**每次处理图片前，必须运行 `check_progress.py` 进度检查脚本（使用 PowerShell 执行）**：
 
-```bash
+```powershell
 cmd /c "call conda activate dsbot_env && python C:\Users\admin\.claude\plugins\docx-img2md\skills\docx-img2md\check_progress.py <md文件路径> 5"
 ```
 
