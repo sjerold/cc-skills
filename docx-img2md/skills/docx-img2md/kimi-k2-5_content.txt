@@ -1,0 +1,69 @@
+数字人民币 智能合约规范 智能合约运行环境技术指引
+
+hex
+52
+
+binary
+2⁷ 2⁶ 2⁵ 2⁴ 2³ 2² 2¹ 2⁰
+0 1 0 1 0 0 1 0
+
+MSbit
+
+LSbit
+
+图11 MSbit 与 LSbit 编码示意图
+
+例如，十进制数82，十六进制为52，二进制为01010010，其MSbit和LSbit如上图所示。
+
+6.4.2.2.2 MSbyte 与 LSbyte
+
+MSbyte（most significant byte）是指多字节数值中权重最大的字节，相反LSbyte（least significant byte）是指权重最小的字节。
+
+MSbyte与LSbyte编码示意见图12。
+
+hex
+2⁸ 2⁰
+05 03
+
+MSbyte LSbyte
+
+图12 MSbyte 与 LSbyte 编码示意图
+
+例如，十进制数1283，十六进制为0503，其MSbyte和LSbyte如上图所示。
+
+6.4.2.2.3 Endianness
+
+字节序（Endianness）规定了多字节数值在内存中的存储顺序。
+
+字节序在内存中存储顺序见图13。
+
+LSbyte
+hex 47 55 43 65 little-endian
+
+memory
+...
+65
+43
+55
+47
+...
+address
+
+small address
+
+big-endian
+MSbyte
+hex 47 55 43 65
+
+memory
+...
+47
+55
+43
+65
+...
+address
+
+small address
+
+图13 字节序在内存中存储顺序示意图

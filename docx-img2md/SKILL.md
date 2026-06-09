@@ -1,7 +1,7 @@
 ---
 name: docx-img2md
 description: 将包含图片的docx文档转换为Markdown格式。从docx提取图片到文字版/<文档名>/pic目录，每个docx独立输出避免冲突，混合类图片用crop_graphics.py裁剪图形+文字标注，纯图形类二次确认后保留原图引用。当用户说"docx转md"、"docx图片转文字"、"转换docx"、"识别docx图片"、"把docx里的图片转成文字"时触发。
-version: 2.3.0
+version: 2.3.1
 ---
 
 # Docx图片转Markdown 技能
@@ -64,10 +64,7 @@ cmd /c "call conda activate dsbot_env && python C:\Users\admin\.claude\plugins\d
 
 **⚠️ 使用外部 LLM API 识别图片（kimi-k2-5）**
 
-图片识别通过 `external_ocr.py` 脚本调用 kimi API 完成，不使用 Agent() 调用。原因：
-- kimi-k2-5 速度快（约 15 秒/张）、Token 消耗低
-- 直接返回格式化结果，包含图片类型判断
-- 主 session 不会累积图片 base64 数据
+图片识别通过 `external_ocr.py` 脚本调用 kimi API 完成，提示词从 SKILL.md 提取传入脚本。
 
 **环境变量配置（一次性）**：
 
@@ -85,8 +82,8 @@ images = sorted(pic目录.glob("*.png"))
 
 # 严格按顺序逐张处理
 for img in images:
-    # 1. 调用 external_ocr.py 识别图片（必须用 PowerShell）
-    cmd /c "call conda activate dsbot_env && python C:\Users\admin\.claude\plugins\docx-img2md\skills\docx-img2md\external_ocr.py --image <图片路径>"
+    # 1. 调用 external_ocr.py 识别图片（必须用 PowerShell，必须传入提示词）
+    cmd /c "call conda activate dsbot_env && python C:\Users\admin\.claude\plugins\docx-img2md\skills\docx-img2md\external_ocr.py --image <图片路径> --prompt <下方提示词模板>"
     
     # 2. 解析返回结果：
     #    - 第一行是图片类型：[纯文字] 或 [混合] 或 [纯图形]
@@ -107,6 +104,46 @@ for img in images:
 [纯文字] 或 [混合] 或 [纯图形]
 OCR 文字内容...
 [需要原图引用]  (仅混合/纯图形类有此标记)
+```
+
+**图片识别提示词模板（每次调用必须传入）**：
+
+```
+请识别这张图片，并按以下准则处理：
+
+【图片来源】docx 文档中的截图/扫描件
+【处理方式】
+1. 判断图片类型：
+   - 纯文字类（截图/扫描件/文档正文）：直接 OCR 识别所有文字，按从上到下、从左到右顺序输出
+   - 混合类（文字 + 流程图/图表）：OCR 识别文字，同时保留原图引用
+   - 纯图形类（纯流程图/架构图，无实质文字）：仅返回 "![image](pic/<图片文件名>)"
+
+2. 图片分类必须经过二次确认：
+   - 如果初步判断含图形元素，必须确认图形占比是否 > 50%
+   - 以文字/表格为主、只有少量装饰图标的 → 归类为纯文字类
+
+3. OCR 文字识别时跳过：
+   - 纯数字页码：1, 12, - 3 -
+   - 版本号：V01xxxxx_20251124
+   - 分隔线：---, ———
+   - 罗马数字页码：I, II, III
+   - 日期格式：2025-11-24
+
+4. 跨页表格处理：
+   - 如果表格被截断（底部无完整边框线），只识别当前页的数据行
+   - 不要重复表头
+
+【输出格式】
+第一行输出图片类型：[纯文字] 或 [混合] 或 [纯图形]
+第二行开始输出识别内容：
+- 纯文字类：直接输出识别到的文字内容
+- 混合类：先输出文字内容，最后单独一行输出 [需要原图引用]
+- 纯图形类：只输出 [纯图形]
+
+【禁止行为】
+- 不要编写任何脚本
+- 不要调用 OCR 库
+- 只处理这一张图片
 ```
 
 **写入 md 文件时**：

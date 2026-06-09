@@ -1,7 +1,7 @@
 {
   "name": "docx-img2md",
   "description": "docx转md技能，使用kimi-k2-5 API识别图片，自动判断图片类型（纯文字/混合/纯图形），严格串行处理",
-  "version": "2.3.0",
+  "version": "2.3.1",
   "author": {
     "name": "sjerold",
     "url": "https://github.com/sjerold"
