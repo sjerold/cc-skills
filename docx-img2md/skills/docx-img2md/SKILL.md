@@ -1,7 +1,7 @@
 ---
 name: docx-img2md
 description: 将包含图片的docx文档转换为Markdown格式。从docx提取图片到文字版/<文档名>/pic目录，每个docx独立输出避免冲突，混合类图片用crop_graphics.py裁剪图形+文字标注，纯图形类二次确认后保留原图引用。当用户说"docx转md"、"docx图片转文字"、"转换docx"、"识别docx图片"、"把docx里的图片转成文字"时触发。
-version: 2.2.2
+version: 2.2.3
 ---
 
 # Docx图片转Markdown 技能
@@ -13,6 +13,32 @@ version: 2.2.2
 - docx 文档内容全部是截图或扫描件
 - 需要将图片中的文字提取出来转为可编辑的 Markdown
 - 流程图等图形类图片需要保留图片引用
+
+## ⚠️ 执行环境强制要求（必须遵守）
+
+**所有 Python 脚本必须使用 PowerShell 执行，禁止使用 Bash！**
+
+### 原因
+1. **中文路径问题**：docx 文件路径通常包含中文（如 `C:\Users\admin\Documents\文档.docx`），Bash 环境无法正确处理
+2. **cmd /c 命令问题**：在 Bash 中执行 `cmd /c` 只会输出 Windows 版本信息，无法实际执行命令
+3. **conda 环境问题**：只有 PowerShell 能正确激活 conda 环境并执行 Python 脚本
+
+### 正确做法
+```powershell
+# ✅ 正确：使用 PowerShell 工具执行
+cmd /c "call conda activate dsbot_env && python <脚本路径> <参数>"
+```
+
+### 错误做法
+```bash
+# ❌ 错误：使用 Bash 工具执行（会导致中文路径乱码或命令无法执行）
+cmd /c "call conda activate dsbot_env && python <脚本路径> <参数>"
+```
+
+**全程禁止**：
+- ❌ 禁止在任何 Bash 命令中执行本 Skill 的 Python 脚本
+- ❌ 禁止尝试用 Bash 的语法转义中文路径
+- ❌ 禁止跳过 PowerShell 环境直接调用 python
 
 ## 操作步骤
 

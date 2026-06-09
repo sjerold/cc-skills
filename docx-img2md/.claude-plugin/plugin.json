@@ -1,7 +1,7 @@
 {
   "name": "docx-img2md",
   "description": "docx转md技能，严格单线程串行处理图片，混合类图片裁剪图形+文字标注，自动跳过页码页脚版本号，文件状态驱动的持续检测机制",
-  "version": "2.2.2",
+  "version": "2.2.3",
   "author": {
     "name": "sjerold",
     "url": "https://github.com/sjerold"
