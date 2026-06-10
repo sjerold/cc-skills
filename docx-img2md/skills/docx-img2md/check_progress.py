@@ -1,16 +1,15 @@
 """
-检查当前处理进度，判断是否需要触发自检
+循环后校验脚本
 
 用法:
-    python check_progress.py <md文件路径> [自检间隔]
+    python check_progress.py <md文件路径>
 
 返回:
-    SELF_CHECK: required   - 需要触发自检
-    SELF_CHECK: skip       - 不需要，继续处理
+    已处理图片数量 + 校验提示
 
 原理:
-    统计 md 文件中已写入的图片引用数量（![image] 或 文字引用），
-    基于文件系统状态而非模型记忆，避免计数偏差。
+    统计 md 文件中已写入的图片引用数量，
+    用于循环后校验：确认本轮只处理1张、写入成功。
 """
 
 import os
@@ -18,31 +17,32 @@ import sys
 import re
 
 
-def check_progress(md_path, interval=5):
+def check_progress(md_path):
     if not os.path.isfile(md_path):
-        print("SELF_CHECK: skip (md file not exists yet)")
+        print("CHECK_RESULT: md文件不存在（首张图片处理前）")
+        print("NEXT_ACTION: 写入后再次调用本脚本校验")
         return
 
     with open(md_path, 'r', encoding='utf-8') as f:
         content = f.read()
 
     # 统计 md 中已写入的图片引用数量
-    # 匹配 pic/image_xxx.png
     refs = re.findall(r'pic/image_\d+\.png', content)
     count = len(refs)
 
-    if count > 0 and count % interval == 0:
-        print(f"SELF_CHECK: required (已处理 {count} 张图片，达到 {interval} 的倍数)")
-    else:
-        next_check = ((count // interval) + 1) * interval
-        print(f"SELF_CHECK: skip (已处理 {count} 张图片，下一次自检在第 {next_check} 张后)")
+    print(f"CHECK_RESULT: 已处理 {count} 张图片")
+    print("循环后校验清单：")
+    print("- [ ] 本轮只处理了1张图片？")
+    print("- [ ] 已写入md（Edit成功）？")
+    print(f"- [ ] md文件图片引用数量={count}（预期增加1）？")
+    print("")
+    print("校验通过后，继续处理下一张图片")
 
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("用法: python check_progress.py <md文件路径> [自检间隔]")
+        print("用法: python check_progress.py <md文件路径>")
         sys.exit(1)
 
     md_path = sys.argv[1]
-    interval = int(sys.argv[2]) if len(sys.argv) > 2 else 5
-    check_progress(md_path, interval)
+    check_progress(md_path)

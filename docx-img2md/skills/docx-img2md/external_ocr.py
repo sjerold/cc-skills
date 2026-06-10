@@ -4,13 +4,12 @@
 通过 API 调用 kimi/qwen 模型识别图片，支持一次处理多张图片
 
 用法:
-    python external_ocr.py --images <图片1> <图片2> [--model <模型名>] [--token <API Key>] [--prompt <提示词>]
+    python external_ocr.py --images <图片1> <图片2> [--model <模型名>] [--token <API Key>]
 
 参数:
-    --images 图片路径（可传多个，建议每次2张）
+    --images 图片路径（可传多个，最多3张）
     --model  模型名称（默认 kimi-k2-5）
     --token  API Token（或通过环境变量 SP_TOKEN）
-    --prompt 提示词内容（必须传入）
 
 返回:
     每张图片的识别结果，格式：
@@ -27,6 +26,28 @@ import json
 import urllib.request
 import urllib.error
 import concurrent.futures
+
+# 默认提示词模板（内置，无需每次传入）
+DEFAULT_PROMPT = """请识别这张图片，并按以下准则处理：
+
+【图片来源】docx 文档中的截图/扫描件
+【处理方式】
+1. 判断图片类型：
+   - 纯文字类：直接OCR识别所有文字，按从上到下、从左到右顺序输出
+   - 混合类（文字+流程图）：OCR识别文字，最后输出[需要原图引用]
+   - 纯图形类：仅返回[纯图形]
+
+2. 图片分类二次确认：
+   - 图形占比>50%才确认为含图形
+   - 以文字/表格为主、只有少量装饰图标→归类为纯文字类
+
+3. OCR跳过：页码(1,12,-3-)、版本号(V01xxx)、分隔线(---)、罗马数字(I,II,III)
+
+【输出格式】
+第一行：[纯文字] 或 [混合] 或 [纯图形]
+第二行起：识别内容（混合类末尾加[需要原图引用])
+
+【禁止】不要编写脚本，不要调用OCR库，只处理这张图片"""
 
 
 def encode_image(image_path):
@@ -77,10 +98,10 @@ def process_image(image_path, model, api_key, prompt):
 def main():
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--images", nargs="+", required=True, help="图片路径（可传多个）")
+    parser.add_argument("--images", nargs="+", required=True, help="图片路径（最多3张）")
     parser.add_argument("--model", default="kimi-k2-5", help="模型名称")
     parser.add_argument("--token", default=None, help="API Token")
-    parser.add_argument("--prompt", required=True, help="提示词内容")
+    parser.add_argument("--prompt", default=None, help="提示词（可选，已内置默认模板）")
     args = parser.parse_args()
 
     api_key = args.token or os.environ.get("SP_TOKEN")
@@ -88,9 +109,8 @@ def main():
         print("错误: 需要 --token 或 SP_TOKEN 环境变量")
         sys.exit(1)
 
-    if not args.prompt:
-        print("错误: 需要传入 --prompt 提示词")
-        sys.exit(1)
+    # 使用传入的 prompt 或默认模板
+    prompt = args.prompt or DEFAULT_PROMPT
 
     # 验证图片存在
     for img in args.images:
@@ -103,7 +123,7 @@ def main():
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
-            executor.submit(process_image, img, args.model, api_key, args.prompt): img
+            executor.submit(process_image, img, args.model, api_key, prompt): img
             for img in args.images
         }
 

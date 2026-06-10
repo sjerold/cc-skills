@@ -50,6 +50,12 @@
       "skills": ["./skills/token-usage"]
     },
     {
+      "name": "docx-img2md",
+      "source": "./docx-img2md",
+      "description": "Docx图片转Markdown：提取图片、批量识别、写入md。",
+      "skills": ["./skills/docx-img2md"]
+    },
+    {
       "name": "common",
       "source": "./common",
       "description": "公共模块：异步Chrome管理、网页抓取、内容解析、Markdown生成。",

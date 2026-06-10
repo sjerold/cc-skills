@@ -4,15 +4,26 @@
 功能:
 - 英文命名: image_001.png, image_002.png, ...
 - 基于 embed ID 去重，避免同一图片重复提取
-- 每个 docx 独立输出到 文字版/<文档名>/pic/ 目录
-- 支持段落和图片表格中的嵌入图片
+- 默认输出到 docx同目录/文字版/<文档名>/pic/ 目录
+- 可通过 --output-dir 指定输出目录（处理WPS云盘场景）
+- 自动处理中文路径：先复制到临时目录，处理后再移回
 
 用法:
-    python extract_images.py <docx文件路径>
+    python extract_images.py <docx文件路径> [--output-dir <输出目录>]
+
+示例:
+    # 默认输出到docx同目录
+    python extract_images.py test.docx
+
+    # WPS云盘场景：复制到本地处理，输出到原始目录
+    python extract_images.py C:\Downloads\test.docx --output-dir "C:\WPSDrive\...\智能合约\文字版\test"
 """
 
 import os
 import sys
+import shutil
+import tempfile
+import argparse
 from pathlib import Path
 from docx import Document
 from docx.opc.constants import RELATIONSHIP_TYPE as RT
@@ -102,54 +113,88 @@ def process_element(doc, element, pic_dir, count, seen_embeds):
     return count
 
 
-def extract_images(docx_path):
-    """从 docx 文件提取所有图片"""
+def extract_images(docx_path, output_dir=None):
+    """从 docx 文件提取所有图片
+
+    Args:
+        docx_path: docx文件路径
+        output_dir: 可选输出目录，如不指定则使用docx同目录的文字版/<文档名>
+    """
     if not os.path.isfile(docx_path):
         print(f"错误: 文件不存在 {docx_path}")
         sys.exit(1)
 
-    doc = Document(docx_path)
+    # 原始路径信息
     basename = Path(docx_path).stem
     doc_dir = os.path.dirname(os.path.abspath(docx_path))
 
-    # 创建输出目录
-    md_dir = os.path.join(doc_dir, "文字版", basename)
-    pic_dir = os.path.join(md_dir, "pic")
-
-    # 清空已有图片（避免残留）
-    if os.path.exists(pic_dir):
-        for f in os.listdir(pic_dir):
-            os.remove(os.path.join(pic_dir, f))
+    # 确定输出目录
+    if output_dir:
+        final_md_dir = output_dir
     else:
-        os.makedirs(pic_dir, exist_ok=True)
+        final_md_dir = os.path.join(doc_dir, "文字版", basename)
+    final_pic_dir = os.path.join(final_md_dir, "pic")
 
-    seen_embeds = set()
-    count = 0
+    # 创建临时目录（不含中文路径）
+    temp_dir = tempfile.mkdtemp(prefix="docx_extract_")
+    temp_docx = os.path.join(temp_dir, "temp.docx")
 
-    # 遍历文档中的所有块级元素（段落和表格）
-    nsmap = {
-        'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main',
-    }
+    try:
+        # 复制 docx 到临时目录
+        shutil.copy2(docx_path, temp_docx)
+        print(f"已复制到临时目录处理中文路径")
 
-    body = doc.element.body
-    for child in body:
-        tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
+        # 在临时目录处理
+        doc = Document(temp_docx)
 
-        if tag == 'p':
-            # 段落
-            count = process_element(doc, child, pic_dir, count, seen_embeds)
-        elif tag == 'tbl':
-            # 表格
-            count = process_element(doc, child, pic_dir, count, seen_embeds)
+        # 临时输出目录
+        temp_pic_dir = os.path.join(temp_dir, "pic")
+        os.makedirs(temp_pic_dir, exist_ok=True)
 
-    print(f"提取完成: 共 {count} 张图片")
-    print(f"输出目录: {pic_dir}")
+        seen_embeds = set()
+        count = 0
+
+        # 遍历文档中的所有块级元素（段落和表格）
+        nsmap = {
+            'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main',
+        }
+
+        body = doc.element.body
+        for child in body:
+            tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
+
+            if tag == 'p':
+                # 段落
+                count = process_element(doc, child, temp_pic_dir, count, seen_embeds)
+            elif tag == 'tbl':
+                # 表格
+                count = process_element(doc, child, temp_pic_dir, count, seen_embeds)
+
+        # 清空已有图片（避免残留）
+        if os.path.exists(final_pic_dir):
+            for f in os.listdir(final_pic_dir):
+                os.remove(os.path.join(final_pic_dir, f))
+        else:
+            os.makedirs(final_pic_dir, exist_ok=True)
+
+        # 将图片从临时目录移到最终目录
+        for f in os.listdir(temp_pic_dir):
+            shutil.move(os.path.join(temp_pic_dir, f), os.path.join(final_pic_dir, f))
+
+        print(f"提取完成: 共 {count} 张图片")
+        print(f"输出目录: {final_pic_dir}")
+
+    finally:
+        # 清理临时目录
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
     return count
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("用法: python extract_images.py <docx文件路径>")
-        sys.exit(1)
-    extract_images(sys.argv[1])
+    parser = argparse.ArgumentParser(description="从docx提取图片")
+    parser.add_argument("docx_path", help="docx文件路径")
+    parser.add_argument("--output-dir", "-o", help="输出目录（默认为docx同目录的文字版/<文档名>）")
+    args = parser.parse_args()
+
+    extract_images(args.docx_path, args.output_dir)
