@@ -1,7 +1,7 @@
 {
   "name": "docx-img2md",
   "description": "docx转md技能，批量OCR并发处理，组装Markdown",
-  "version": "2.5.0",
+  "version": "2.5.1",
   "author": {
     "name": "sjerold",
     "url": "https://github.com/sjerold"
