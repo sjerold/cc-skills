@@ -27,6 +27,14 @@ import urllib.request
 import urllib.error
 import concurrent.futures
 
+# Windows 下 sys.stdout 默认编码为 gbk，print 中文（重定向到文件时）会写成 GBK 字节，
+# 被 UTF-8 读取即乱码。强制 stdout/stderr 用 UTF-8，保证 skill 产出的 markdown 可读。
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+except (AttributeError, ValueError):
+    pass
+
 # 默认提示词模板（内置，无需每次传入）
 DEFAULT_PROMPT = """请识别这张图片，并按以下准则处理：
 
@@ -61,7 +69,8 @@ def get_mime_type(image_path):
 
 
 def call_api(image_base64, mime_type, model, api_key, prompt):
-    api_base = "https://coding.dashscope.aliyuncs.com/v1"
+    # 讯飞 MaaS OpenAI 兼容入口；可用 SP_API_BASE 环境变量覆盖
+    api_base = os.environ.get("SP_API_BASE", "https://maas-coding-api.cn-huabei-1.xf-yun.com/v2")
 
     request_body = {
         "model": model,
@@ -99,14 +108,15 @@ def main():
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--images", nargs="+", required=True, help="图片路径（最多3张）")
-    parser.add_argument("--model", default="kimi-k2-5", help="模型名称")
+    parser.add_argument("--model", default="xopkimik26", help="模型名称")
     parser.add_argument("--token", default=None, help="API Token")
     parser.add_argument("--prompt", default=None, help="提示词（可选，已内置默认模板）")
+    parser.add_argument("--output", default=None, help="输出到指定文件（UTF-8），而非 stdout")
     args = parser.parse_args()
 
     api_key = args.token or os.environ.get("SP_TOKEN")
     if not api_key:
-        print("错误: 需要 --token 或 SP_TOKEN 环境变量")
+        print("错误: 需要 --token 或 SP_TOKEN 环境变量", file=sys.stderr)
         sys.exit(1)
 
     # 使用传入的 prompt 或默认模板
@@ -115,11 +125,12 @@ def main():
     # 验证图片存在
     for img in args.images:
         if not os.path.isfile(img):
-            print(f"错误: 图片不存在 {img}")
+            print(f"错误: 图片不存在 {img}", file=sys.stderr)
             sys.exit(1)
 
     # 并行处理（最多2张同时）
     max_workers = min(2, len(args.images))
+    results = []
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
@@ -130,9 +141,25 @@ def main():
         for future in concurrent.futures.as_completed(futures):
             image_path, content = future.result()
             img_name = os.path.basename(image_path)
-            print(f"=== {img_name} ===")
-            print(content)
-            print()
+            results.append((img_name, content))
+
+    # 按图片名排序保证顺序稳定
+    results.sort(key=lambda x: x[0])
+
+    # 构建输出文本
+    lines = []
+    for img_name, content in results:
+        lines.append(f"=== {img_name} ===")
+        lines.append(content)
+        lines.append("")
+    output_text = "\n".join(lines)
+
+    if args.output:
+        # 直接写 UTF-8 文件，绕过 PowerShell Set-Content 的 GBK 编码问题
+        with open(args.output, "w", encoding="utf-8") as f:
+            f.write(output_text)
+    else:
+        print(output_text)
 
 
 if __name__ == "__main__":
