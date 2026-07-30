@@ -1,0 +1,23 @@
+{
+  "name": "web-2md",
+  "description": "单篇网页精抓转Markdown：针对单篇文章URL，完整抓取正文+图片，图片本地化保存，输出带元信息标注的md。与web-article-fetcher(批量链接发现)互补，专注单篇完整还原。",
+  "version": "1.0.0",
+  "author": {
+    "name": "sjerold"
+  },
+  "license": "MIT",
+  "skills": ["./skills/web-2md"],
+  "keywords": [
+    "web-2md",
+    "single-article",
+    "image-download",
+    "playwright",
+    "markdown",
+    "网页转md",
+    "单篇抓取",
+    "图片本地化"
+  ],
+  "dependencies": [
+    { "name": "common", "version": ">=1.4.0" }
+  ]
+}
