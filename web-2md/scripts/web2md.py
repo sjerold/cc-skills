@@ -112,26 +112,46 @@ async def fetch_page(url):
     return title, html, page, pw, br
 
 
-def desc_image(img_path):
-    """调 external_ocr 给单张图生成描述,返回描述字符串或 None"""
-    import subprocess
-    try:
-        r = subprocess.run(
-            ['python', _EXTERNAL_OCR, '--images', str(img_path),
-             '--prompt', DESC_PROMPT, '--output', str(img_path) + '.txt'],
-            capture_output=True, timeout=300, text=True, encoding='utf-8'
-        )
-        txt_path = Path(str(img_path) + '.txt')
-        if r.returncode == 0 and txt_path.exists() and txt_path.stat().st_size > 10:
-            desc = txt_path.read_text(encoding='utf-8').strip()
-            txt_path.unlink(missing_ok=True)
-            # 去掉首行可能的图片名/标签行(多种格式)
-            desc = re.sub(r'^=+\s*\S+\s*=+\s*\n', '', desc)  # === img_xx.webp ===
-            desc = re.sub(r'^(image_[^\n]*|图片[^\n]*)\n', '', desc)
-            desc = desc.strip()
-            return desc[:1000] if desc else None
-    except Exception as e:
-        print(f"    OCR失败 {img_path.name}: {e}")
+def desc_image(img_path, max_retries=5):
+    """调 external_ocr 给单张图生成描述,失败自动重试(带退避)。
+    OCR 脚本本身只执行一次,重试职责由本调用方承担(对齐 docx-img2md 规范)。
+    返回描述字符串或 None。
+    """
+    import subprocess, time
+    txt_path = Path(str(img_path) + '.txt')
+    last_err = ''
+    for attempt in range(1, max_retries + 1):
+        # 清掉上次失败的残留输出文件
+        txt_path.unlink(missing_ok=True)
+        try:
+            r = subprocess.run(
+                ['python', _EXTERNAL_OCR, '--images', str(img_path),
+                 '--prompt', DESC_PROMPT, '--output', str(txt_path)],
+                capture_output=True, timeout=300, text=True, encoding='utf-8'
+            )
+            if r.returncode == 0 and txt_path.exists() and txt_path.stat().st_size > 10:
+                desc = txt_path.read_text(encoding='utf-8').strip()
+                txt_path.unlink(missing_ok=True)
+                # 去掉首行可能的图片名/标签行(多种格式)
+                desc = re.sub(r'^=+\s*\S+\s*=+\s*\n', '', desc)  # === img_xx.webp ===
+                desc = re.sub(r'^(image_[^\n]*|图片[^\n]*)\n', '', desc)
+                desc = desc.strip()
+                if desc:
+                    if attempt > 1:
+                        print(f"    {img_path.name} 第{attempt}次重试成功")
+                    return desc[:1000]
+            # 失败:记录错误,退避后重试
+            last_err = (r.stderr or '').strip().split('\n')[-1][:80] or f'exit={r.returncode}'
+        except subprocess.TimeoutExpired:
+            last_err = 'timeout'
+        except Exception as e:
+            last_err = str(e)[:80]
+        if attempt < max_retries:
+            wait = 5 * attempt  # 5,10,15,20 秒递增退避
+            print(f"    {img_path.name} 第{attempt}次失败({last_err}),{wait}s 后重试")
+            time.sleep(wait)
+    print(f"    {img_path.name} 放弃({max_retries}次均失败): {last_err}")
+    txt_path.unlink(missing_ok=True)
     return None
 
 
@@ -144,6 +164,7 @@ def desc_images_parallel(img_dir, names, workers=3):
     if not os.environ.get('SP_TOKEN'):
         print("    [跳过] 未配置 SP_TOKEN 环境变量,跳过图片描述(图片仍保留,仅无文字描述)")
         return desc_map
+    # 并发降到2:讯飞网关 503 主因是高并发,低并发 + 重试更稳
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
         future_to_name = {ex.submit(desc_image, img_dir / n): n for n in names}
         done = 0
@@ -301,7 +322,7 @@ async def main():
 
     print("[3/4] 图片转文字(img2txt,并行)...")
     names = sorted(img_map.values())
-    desc_map = desc_images_parallel(img_dir, names, workers=3)
+    desc_map = desc_images_parallel(img_dir, names, workers=2)
     print(f"  描述成功 {len(desc_map)}/{len(names)}")
 
     print("[4/4] 生成 Markdown...")
