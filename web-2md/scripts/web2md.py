@@ -193,6 +193,7 @@ def build_markdown(title, html, img_map, srcs, url, desc_map):
     # 剥离 style/script
     html = re.sub(r'<style[^>]*>.*?</style>', '', html, flags=re.S | re.I)
     html = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.S | re.I)
+
     # 替换图片 src 为本地相对路径(覆盖 &amp; 与协议相对形式)
     for src, name in img_map.items():
         rel = 'images/' + name
@@ -204,17 +205,29 @@ def build_markdown(title, html, img_map, srcs, url, desc_map):
     md_text = md_convert(html, heading_style='ATX', strip=['script', 'style'])
     md_text = re.sub(r'\n{3,}', '\n\n', md_text).strip()
 
-    # 给每个图片引用加文字描述:alt 放描述,下方加（图片描述：...）
-    for name, desc in desc_map.items():
-        rel = 'images/' + name
-        # 1) 把空的 alt 填上描述
-        md_text = md_text.replace(f'![]({rel})', f'![{desc}]({rel})')
-        md_text = md_text.replace(f'![]({rel} "{rel}")', f'![{desc}]({rel})')
-        # 2) 在图片行下方追加（图片描述：xxx）,确保纯文本模型可见
-        md_text = md_text.replace(
-            f'![{desc}]({rel})',
-            f'![{desc}]({rel})\n\n（图片描述：{desc}）'
-        )
+    # markdownify 对带 alt 属性的 <img> 可能转成畸形(如 "**alt文字**](path)" 或孤立 "](path)")。
+    # 用正则把每个含 images/img_xx 的图片引用整行重写为标准格式:原图 + 独立注脚块。
+    # 原图保持简洁(空 alt),大段详细描述放进引用块 > 【图片内容】...,作为图片注脚,
+    # 不塞进 alt、不重复、不破坏原文正文结构,纯文本模型也能读到。
+    def rewrite_img(m):
+        rel = m.group(1)
+        name = rel.split('/')[-1]
+        desc = desc_map.get(name)
+        line = f'![]({rel})'
+        if desc:
+            # 描述里可能含 ##/--- 等会破坏文档结构的 markdown 标记,在引用块里需转义
+            safe = desc
+            safe = re.sub(r'(?m)^(\s*)(#{1,6}\s)', r'\1\\#\2', safe)  # 转义行首标题
+            safe = re.sub(r'(?m)^\s*-{3,}\s*$', '', safe)             # 删分隔线
+            safe = re.sub(r'(?m)^\s*={3,}\s*$', '', safe)           # 删另一种分隔线
+            desc_lines = safe.strip().split('\n')
+            block = '\n'.join('> ' + l if l.strip() else '>' for l in desc_lines)
+            line += f'\n\n> 【图片内容】\n{block}'
+        return line
+    md_text = re.sub(
+        r'(?m)^[^\n]*?\]\((images/img_[^)\s]+)\)[^\n]*$',
+        rewrite_img, md_text
+    )
 
     short_title = title.split('本文介绍了')[0].strip()
     short_title = re.sub(r'\s+', ' ', short_title)[:60] or '网页文章'
@@ -237,6 +250,7 @@ async def main():
     ap.add_argument('url', help='文章 URL')
     ap.add_argument('-o', '--output', default='~/Downloads/web_2md', help='输出目录(默认 ~/Downloads/web_2md)')
     ap.add_argument('--name', default=None, help='输出文件名(不含扩展名,默认用标题)')
+    ap.add_argument('--limit-img', type=int, default=0, help='只处理前 N 张图(0=全部,测试用)')
     args = ap.parse_args()
 
     url = args.url
@@ -274,6 +288,9 @@ async def main():
         srcs.append(s)
     seen = set()
     srcs = [s for s in srcs if not (s in seen or seen.add(s))]
+    if args.limit_img and args.limit_img > 0:
+        srcs = srcs[:args.limit_img]
+        print(f"  --limit-img {args.limit_img}: 只处理前 {len(srcs)} 张")
     print(f"  发现图片 {len(srcs)} 张")
 
     print("[2/4] 下载图片(Playwright request 上下文,绕过 CORS/防盗链)...")
