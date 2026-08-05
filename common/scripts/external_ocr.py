@@ -8,7 +8,7 @@
 
 参数:
     --images 图片路径（可传多个，最多3张）
-    --model  模型名称（默认 kimi-k2-5）
+    --model  模型名称（默认 xopkimik26，或通过环境变量 SP_MODEL）
     --token  API Token（或通过环境变量 SP_TOKEN）
 
 返回:
@@ -91,9 +91,43 @@ def call_api(image_base64, mime_type, model, api_key, prompt):
 
     url = f"{api_base}/chat/completions"
     req = urllib.request.Request(url, data=json.dumps(request_body).encode("utf-8"), headers=headers, method="POST")
-    with urllib.request.urlopen(req, timeout=300) as response:
-        result = json.loads(response.read().decode("utf-8"))
-        return result["choices"][0]["message"]["content"]
+
+    import time
+
+    max_retries = 5
+    for attempt in range(1, max_retries + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=300) as response:
+                result = json.loads(response.read().decode("utf-8"))
+                return result["choices"][0]["message"]["content"]
+        except urllib.error.HTTPError as e:
+            code = e.code
+            print(f"[重试 {attempt}/{max_retries}] HTTP {code}", file=sys.stderr)
+            if code == 503:
+                print("  503 Service Unavailable, 等待 5 秒后重试...", file=sys.stderr)
+                time.sleep(5)
+            elif code == 429:
+                # 指数退避: 5s, 10s, 20s, 40s, 80s
+                wait = min(5 * (2 ** (attempt - 1)), 80)
+                print(f"  429 Too Many Requests, 等待 {wait} 秒后重试...", file=sys.stderr)
+                time.sleep(wait)
+            elif code >= 500:
+                wait = min(5 * (2 ** (attempt - 1)), 60)
+                print(f"  服务器错误, 等待 {wait} 秒后重试...", file=sys.stderr)
+                time.sleep(wait)
+            else:
+                if attempt == max_retries:
+                    raise
+                wait = min(5 * (2 ** (attempt - 1)), 60)
+                print(f"  等待 {wait} 秒后重试...", file=sys.stderr)
+                time.sleep(wait)
+        except (urllib.error.URLError, ConnectionError, TimeoutError) as e:
+            print(f"[重试 {attempt}/{max_retries}] 网络错误: {e}", file=sys.stderr)
+            if attempt == max_retries:
+                raise
+            time.sleep(min(5 * (2 ** (attempt - 1)), 60))
+
+    raise RuntimeError(f"API 调用在 {max_retries} 次重试后仍然失败")
 
 
 def process_image(image_path, model, api_key, prompt):
@@ -108,7 +142,7 @@ def main():
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--images", nargs="+", required=True, help="图片路径（最多3张）")
-    parser.add_argument("--model", default="xopkimik26", help="模型名称")
+    parser.add_argument("--model", default=None, help="模型名称（或通过环境变量 SP_MODEL，默认 xopkimik26）")
     parser.add_argument("--token", default=None, help="API Token")
     parser.add_argument("--prompt", default=None, help="提示词（可选，已内置默认模板）")
     parser.add_argument("--output", default=None, help="输出到指定文件（UTF-8），而非 stdout")
@@ -118,6 +152,10 @@ def main():
     if not api_key:
         print("错误: 需要 --token 或 SP_TOKEN 环境变量", file=sys.stderr)
         sys.exit(1)
+
+    # 模型名称: --model 参数优先, 其次 SP_MODEL 环境变量, 最后默认 xopkimik26
+    # 注: SP_MODEL 为空串时也回落默认(避免空模型名传给 API 触发 500)
+    model = args.model or os.environ.get("SP_MODEL") or "xopkimik26"
 
     # 使用传入的 prompt 或默认模板
     prompt = args.prompt or DEFAULT_PROMPT
@@ -134,7 +172,7 @@ def main():
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
-            executor.submit(process_image, img, args.model, api_key, prompt): img
+            executor.submit(process_image, img, model, api_key, prompt): img
             for img in args.images
         }
 
