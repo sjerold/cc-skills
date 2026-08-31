@@ -32,8 +32,12 @@ AD_DOMAINS = [
 ]
 
 
-def extract_content(html, url='', max_length=15000):
-    """从HTML中提取正文内容"""
+def extract_content(html, url='', max_length=15000, content_selector=None):
+    """从HTML中提取正文内容
+
+    Args:
+        content_selector: 站点专属正文容器选择器（CSS），优先于内置候选列表
+    """
     if HAS_BS4:
         soup = BeautifulSoup(html, 'html.parser')
 
@@ -53,12 +57,12 @@ def extract_content(html, url='', max_length=15000):
             title = soup.find('h1').get_text(strip=True)
 
         # 先提取正文（在移除噪音之前）
-        content_text = _extract_main_content(soup)
+        content_text = _extract_main_content(soup, content_selector)
 
         # 如果提取失败或内容太短，尝试移除噪音后再提取
         if len(content_text) < 100:
             _remove_noise_sections(soup)
-            content_text = _extract_main_content(soup)
+            content_text = _extract_main_content(soup, content_selector)
 
     else:
         # 无BS4时的简单提取
@@ -354,9 +358,11 @@ def _trim_content_boundaries(text):
     return text.strip()
 
 
-def _extract_main_content(soup):
+def _extract_main_content(soup, content_selector=None):
     """从BeautifulSoup对象中提取主要内容"""
-    content_selectors = [
+    # 站点专属选择器优先
+    custom_selectors = [content_selector] if content_selector else []
+    content_selectors = custom_selectors + [
         # 知乎（优先级最高）
         '.Post-RichText', '.RichText', '.RichContent', '.RichContent-inner',
         '[class*="RichText"]', '.Post-Main',

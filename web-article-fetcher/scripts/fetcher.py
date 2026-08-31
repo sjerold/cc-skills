@@ -181,31 +181,44 @@ def generate_report(results, discovered, skipped, save_dir, source_url, site_nam
 
 # ============ 主流程 ============
 
-async def fetch_urls_directly(urls, save_dir, state_file, workers):
-    """直接抓取模式：抓取指定的URL列表"""
+async def fetch_urls_directly(urls, save_dir, state_file, workers, url_titles=None):
+    """直接抓取模式：抓取指定的URL列表（url_titles: url -> 提供的标题，优先于页面解析）"""
     state = load_state(state_file)
+
+    # 增量过滤：跳过已抓取的，重跑列表文件即可补抓失败项
+    pending = [u for u in urls if not is_fetched(u, state)]
+    skipped = len(urls) - len(pending)
+    if skipped:
+        print(f"跳过 {skipped} 个已抓取，待抓取 {len(pending)} 个", file=sys.stderr)
+
     results = []
     semaphore = asyncio.Semaphore(workers)
 
     async def fetch_one(idx, url):
         async with semaphore:
-            result = await fetch_url_async(url)
+            cfg = get_site_config(url) or {}
+            result = await fetch_url_async(url, content_selector=cfg.get('content_selector') or None)
             results.append(result)
+
+            # 文件/API 提供的标题比 SPA 页面 <title> 更可靠
+            provided = (url_titles or {}).get(url)
+            if provided and result.get('success'):
+                result['title'] = provided
 
             if result.get('success'):
                 site_name = get_site_name(url)
                 filepath = save_article(result, save_dir, site_name)
                 if filepath:
                     result['file'] = filepath
-                    print(f"  [{idx+1}/{len(urls)}] 已保存: {result.get('title', '')[:30]}", file=sys.stderr)
+                    print(f"  [{idx+1}/{len(pending)}] 已保存: {result.get('title', '')[:30]}", file=sys.stderr)
                 add_fetched(state, url, {'title': result.get('title'), 'file': filepath})
                 save_state(state, state_file)
             else:
-                print(f"  [{idx+1}/{len(urls)}] 失败: {result.get('error', 'Unknown')}", file=sys.stderr)
+                print(f"  [{idx+1}/{len(pending)}] 失败: {result.get('error', 'Unknown')}", file=sys.stderr)
 
             return result
 
-    tasks = [fetch_one(i, url) for i, url in enumerate(urls)]
+    tasks = [fetch_one(i, url) for i, url in enumerate(pending)]
     await asyncio.gather(*tasks)
 
     return results
@@ -279,7 +292,8 @@ async def fetch_from_source(source_url, limit, save_dir, state_file, workers, fu
 
     async def fetch_one(idx, url):
         async with semaphore:
-            result = await fetch_url_async(url)
+            cfg = get_site_config(url) or {}
+            result = await fetch_url_async(url, content_selector=cfg.get('content_selector') or None)
             results.append(result)
 
             if result.get('success'):
@@ -307,6 +321,7 @@ async def main():
     """主入口"""
     parser = argparse.ArgumentParser(description='网页文章抓取工具')
     parser.add_argument('url', nargs='*', help='源页面URL或文章URL（支持多个）')
+    parser.add_argument('-f', '--url-file', help='从文件读取URL列表直接抓取（每行一个，api_list.py 生成）')
     parser.add_argument('-n', '--limit', type=int, default=20, help='最大抓取数量')
     parser.add_argument('-o', '--output', help='保存目录')
     parser.add_argument('--full', action='store_true', help='全量抓取')
@@ -314,7 +329,7 @@ async def main():
 
     args = parser.parse_args()
 
-    if not args.url:
+    if not args.url and not args.url_file:
         parser.print_help()
         return
 
@@ -327,6 +342,21 @@ async def main():
     os.makedirs(save_dir, exist_ok=True)
     state_file = os.path.join(save_dir, STATE_FILE_NAME)
 
+    # 从文件读取 URL 列表（直接抓取模式），支持 "url\ttitle" 格式（api_list.py 输出）
+    file_urls = []
+    url_titles = {}
+    if args.url_file:
+        with open(args.url_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                parts = line.split('\t', 1)
+                file_urls.append(parts[0])
+                if len(parts) == 2 and parts[1]:
+                    url_titles[parts[0]] = parts[1]
+        print(f"从文件读取 {len(file_urls)} 个URL: {args.url_file}", file=sys.stderr)
+
     # 解析URL
     urls = []
     for u in args.url:
@@ -337,13 +367,15 @@ async def main():
         else:
             urls.append(u)
 
+    urls = file_urls + urls
+
     print(f"保存目录: {save_dir}", file=sys.stderr)
     print(f"并发数: {args.workers}", file=sys.stderr)
 
     # 判断模式
-    if len(urls) > 1:
+    if len(urls) > 1 or (len(urls) == 1 and file_urls):
         print(f"直接抓取模式: {len(urls)} 个URL", file=sys.stderr)
-        results = await fetch_urls_directly(urls, save_dir, state_file, args.workers)
+        results = await fetch_urls_directly(urls, save_dir, state_file, args.workers, url_titles)
     else:
         source_url = urls[0]
         print(f"源页面: {source_url}", file=sys.stderr)

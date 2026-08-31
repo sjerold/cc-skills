@@ -134,7 +134,7 @@ def _should_skip_url(url):
     return False
 
 
-async def _fetch_with_page(page, url, timeout=30000, wait_time=3):
+async def _fetch_with_page(page, url, timeout=30000, wait_time=3, content_selector=None):
     """使用给定page抓取URL（内部方法）
 
     Args:
@@ -219,7 +219,7 @@ async def _fetch_with_page(page, url, timeout=30000, wait_time=3):
             return {'success': False, 'url': final_url, 'original_url': url,
                     'anti_crawl': True, 'error': '遇到反爬限制'}
 
-        content_data = extract_content(html, final_url)
+        content_data = extract_content(html, final_url, content_selector=content_selector)
 
         # 检查内容长度（降低阈值，因为清理后内容可能较短）
         if content_data['length'] < 30:
@@ -239,13 +239,14 @@ async def _fetch_with_page(page, url, timeout=30000, wait_time=3):
 
 # ============ 公开API ============
 
-async def fetch_url_async(url, timeout=30000, wait_time=2):
+async def fetch_url_async(url, timeout=30000, wait_time=2, content_selector=None):
     """抓取单个URL（异步）
 
     Args:
         url: 要抓取的URL
         timeout: 超时时间（毫秒）
         wait_time: 等待时间（秒）
+        content_selector: 站点专属正文容器选择器（CSS），由调用方按站点配置传入
 
     Returns:
         dict: 抓取结果
@@ -260,7 +261,7 @@ async def fetch_url_async(url, timeout=30000, wait_time=2):
         if not page:
             return {'success': False, 'url': url, 'original_url': url, 'error': '无法创建页面'}
 
-        result = await _fetch_with_page(page, url, timeout, wait_time)
+        result = await _fetch_with_page(page, url, timeout, wait_time, content_selector)
         return result
 
     finally:

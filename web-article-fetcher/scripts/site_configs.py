@@ -40,6 +40,30 @@ SITE_CONFIGS = {
         'content_selector': '',
         'title_selector': 'h1',
     },
+    'shanghai.gov.cn': {
+        'name': '上海市人民政府',
+        # SPA 站点：列表由 JSON API 渲染，HTML 里无文章链接。
+        # 用 api_list.py 通过 api 配置翻页拉取记录，构造详情 URL 后交给 fetcher.py 抓取。
+        'link_patterns': [],
+        'exclude_patterns': [],
+        'api': {
+            'url': 'https://www.shanghai.gov.cn/gwk/policy/page',
+            'method': 'POST',
+            'body_template': '{"siteIdList":["0001"],"pageNo":{page},"pageSize":{size}}',
+            # record 顶层字段与 attrs 子字段均可用于模板占位符
+            'url_template': 'https://www.shanghai.gov.cn/zhengce/detail?businessId={businessId}&siteId={siteId}',
+        },
+    },
+    'sh.mof.gov.cn': {
+        'name': '财政部上海监管局',
+        # 工作动态栏目文章，如 /gzdt/caizhengjiancha/202608/t20260825_3996042.htm
+        'link_patterns': [
+            r'/gzdt/caizhengjiancha/\d{6}/t\d{8}_\d+\.htm',
+        ],
+        'exclude_patterns': [],
+        'content_selector': '.TRS_Editor',
+        'title_selector': 'h1',
+    },
     # 可扩展其他站点配置
 }
 
