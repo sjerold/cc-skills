@@ -32,7 +32,7 @@ _SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _SCRIPTS_DIR)
 
 from site_configs import SITE_ALIASES, SITE_CONFIGS, get_site_config, get_site_name
-from link_discovery import discover_links
+from link_discovery import discover_links, find_next_page
 
 # 导入 common 模块
 _COMMON_DIR = os.path.join(os.path.dirname(_SCRIPTS_DIR), '..', 'common', 'scripts')
@@ -212,22 +212,52 @@ async def fetch_urls_directly(urls, save_dir, state_file, workers):
 
 
 async def fetch_from_source(source_url, limit, save_dir, state_file, workers, full_mode):
-    """从源页面发现并抓取"""
+    """从源页面发现并抓取（自动翻页，直到凑够 limit 个未抓取链接）"""
     state = load_state(state_file)
     if full_mode:
         clear_state(state_file)
         state = {'version': '1.0', 'urls': {}}
 
-    # 获取源页面
-    html, _ = await fetch_source_page(source_url)
-    if not html:
-        print("无法获取源页面", file=sys.stderr)
-        return []
-
-    # 发现链接
     config = get_site_config(source_url)
-    discovered = discover_links(source_url, html, config)
-    print(f"发现 {len(discovered)} 个链接", file=sys.stderr)
+
+    # 翻页收集文章链接
+    discovered = []
+    visited_pages = set()
+    page_url = source_url
+    page_no = 1
+
+    while page_url and page_url not in visited_pages:
+        visited_pages.add(page_url)
+        print(f"翻页收集: 第 {page_no} 页 {page_url}", file=sys.stderr)
+        html, _ = await fetch_source_page(page_url)
+        if not html:
+            print("无法获取源页面，停止翻页", file=sys.stderr)
+            break
+
+        discovered.extend(discover_links(page_url, html, config))
+
+        # 跨页去重（保序）
+        seen = set()
+        unique = []
+        for item in discovered:
+            if item['url'] not in seen:
+                seen.add(item['url'])
+                unique.append(item)
+        discovered = unique
+
+        # 未抓取链接数量已达标则停止翻页
+        pending = sum(1 for item in discovered if not is_fetched(item['url'], state))
+        if pending >= limit:
+            break
+
+        next_url = find_next_page(page_url, html)
+        if not next_url:
+            print("没有下一页，翻页结束", file=sys.stderr)
+            break
+        page_url = next_url
+        page_no += 1
+
+    print(f"发现 {len(discovered)} 个链接（共翻 {page_no} 页）", file=sys.stderr)
 
     # 增量过滤
     to_fetch = [item for item in discovered if not is_fetched(item['url'], state)]

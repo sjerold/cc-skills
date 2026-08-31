@@ -29,6 +29,17 @@ SITE_CONFIGS = {
         'content_selector': '.article-content',
         'title_selector': 'h1',
     },
+    'pbc.gov.cn': {
+        'name': '中国人民银行',
+        # 仅匹配 沟通交流>新闻 栏目（113469）下的文章详情页，如
+        # /goutongjiaoliu/113456/113469/2026081015473613597/index.html
+        'link_patterns': [
+            r'/goutongjiaoliu/113456/113469/\d+/index\.html',
+        ],
+        'exclude_patterns': [],
+        'content_selector': '',
+        'title_selector': 'h1',
+    },
     # 可扩展其他站点配置
 }
 

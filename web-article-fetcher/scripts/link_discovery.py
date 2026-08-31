@@ -110,3 +110,35 @@ def discover_links(base_url: str, html: str, config: Optional[Dict] = None) -> L
     """发现文章链接"""
     finder = LinkFinder(config)
     return finder.find(base_url, html)
+
+
+# "下一页"链接的常见文字（小写比较）
+NEXT_PAGE_TEXTS = {'下一页', '下页', 'next', 'next page', '>', '>>', '»'}
+
+
+def find_next_page(base_url: str, html: str) -> Optional[str]:
+    """从页面中查找"下一页"链接，用于自动翻页
+
+    兼容两种形式：
+    1. 常规链接 <a href="...">下一页</a>
+    2. JS 分页控件 <a tagname="...">下一页</a>（如 pbc.gov.cn 的 easysite 分页）
+
+    Returns:
+        下一页的绝对 URL，未找到返回 None
+    """
+    if not HAS_BS4:
+        return None
+
+    soup = BeautifulSoup(html, 'html.parser')
+    for anchor in soup.find_all(['a', 'span', 'div', 'button']):
+        text = anchor.get_text(strip=True).lower()
+        if text not in NEXT_PAGE_TEXTS:
+            continue
+
+        # 依次尝试常见的目标地址属性
+        for attr in ('href', 'tagname', 'data-href', 'data-url'):
+            value = (anchor.get(attr) or '').strip()
+            if value and not value.startswith(('javascript', '#')):
+                return urljoin(base_url, value)
+
+    return None
