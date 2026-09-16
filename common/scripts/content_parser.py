@@ -49,6 +49,11 @@ def extract_content(html, url='', max_length=15000, content_selector=None):
         # 移除广告元素
         _remove_ads(soup)
 
+        # 百度百科：新版 #root 布局把"秒懂视频/相关视频"推荐块嵌进词条容器，
+        # 用稳定 JS 钩子 ID 精确剥掉（实时渲染，位置不固定）
+        if any(k in url.lower() for k in ['baike.baidu.com', 'baike.com']) or soup.find(id='J-lemma-main-wrapper'):
+            _remove_baike_noise(soup)
+
         # 提取标题（在移除噪音之前）
         title = ''
         if soup.find('title'):
@@ -117,8 +122,28 @@ def _remove_ads(soup):
     for tag in to_decompose:
         try:
             tag.decompose()
-        except:
+        except Exception:
             pass
+
+
+def _remove_baike_noise(soup):
+    """剥离百度百科页内的视频/推荐/贡献者等噪音块。
+
+    百度百科新版为 #root 布局，词条正文用稳定 JS 钩子 ID(#J-lemma-main-wrapper) 包住，
+    但"秒懂视频""相关搜索""贡献者"块会实时渲染并嵌在其中。按稳定 ID 整块删除，
+    避免把推荐视频、相关搜索广告、编辑者名单灌进正文。
+    """
+    for noise_id in [
+        'J-video-list', 'J-lemma-video-list',   # 秒懂/相关视频推荐
+        'J-related-search',                      # 底部"相关搜索"广告位
+        'J-contributor-list',                    # 词条统计/贡献者列表
+    ]:
+        node = soup.find(id=noise_id)
+        if node:
+            try:
+                node.decompose()
+            except Exception:
+                pass
 
 
 def _remove_noise_sections(soup):
@@ -186,7 +211,7 @@ def _remove_noise_sections(soup):
         for elem in soup.select(selector):
             try:
                 elem.decompose()
-            except:
+            except Exception:
                 pass
 
     # 移除特定ID的元素
@@ -195,7 +220,7 @@ def _remove_noise_sections(soup):
         if elem:
             try:
                 elem.decompose()
-            except:
+            except Exception:
                 pass
 
 
@@ -376,6 +401,9 @@ def _extract_main_content(soup, content_selector=None):
         '.entry-content', '.post-content', '#content',
         '.article-content', '.detail', '.body', '.text',
         '.main-content', '.lemma-summary', '.para',
+        # 百度百科：新版为 #root 布局，class 带 hash 后缀，但 #J-lemma-main-wrapper 是
+        # 稳定 JS 钩子 ID，恰好框住"词条头+摘要+正文各节"，排除外围导航/秒懂视频/相关搜索
+        '#J-lemma-main-wrapper',
     ]
 
     # 收集所有匹配的元素，选择文本最长的

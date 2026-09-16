@@ -33,6 +33,33 @@ from content_parser import extract_content, check_anti_crawl, is_redirect_url
 # 导入Markdown写入模块
 from markdown_writer import save_result_to_markdown
 
+# 单个 URL 抓取的总超时（秒）——即使内部某一步挂起也会被强制中断，避免卡死
+FETCH_TOTAL_TIMEOUT = int(os.environ.get('FETCH_TOTAL_TIMEOUT', '45'))
+
+# 抓取重试：网络/超时类失败最多额外重试的次数，指数退避等待
+MAX_FETCH_RETRIES = int(os.environ.get('MAX_FETCH_RETRIES', '2'))
+FETCH_RETRY_BASE_WAIT = 1.5   # 首次退避等待（秒）
+
+
+def _is_retryable(result):
+    """判断抓取结果是否值得重试。
+
+    只重试 网络错误/超时 这类暂时性失败；跳过、反爬、内容过短属于结论性失败，
+    重试也没有意义（再多次结果相同），直接放行。
+    """
+    if result is None:
+        return True
+    if result.get('success'):
+        return False
+    if result.get('skipped'):
+        return False
+    if result.get('anti_crawl'):
+        return False
+    error = result.get('error', '') or ''
+    if error.startswith('内容过短'):
+        return False
+    return True
+
 
 # ============ 异步辅助方法 ============
 
@@ -66,7 +93,7 @@ async def wait_for_redirect(page, original_url, max_wait=10, check_interval=1):
                 print(f"跳转成功({waited}s): {current_url[:60]}...", file=sys.stderr)
                 try:
                     await page.wait_for_load_state("networkidle", timeout=2000)
-                except:
+                except Exception:
                     pass
                 return
             last_url = current_url
@@ -103,14 +130,14 @@ async def _close_popups(page):
                     await asyncio.sleep(0.3)
                     print(f"已关闭弹窗: {selector}", file=sys.stderr)
                     break  # 只关闭一个弹窗
-        except:
+        except Exception:
             pass
 
     # 按 ESC 键尝试关闭弹窗
     try:
         await page.keyboard.press('Escape')
         await asyncio.sleep(0.2)
-    except:
+    except Exception:
         pass
 
 
@@ -189,6 +216,8 @@ async def _fetch_with_page(page, url, timeout=30000, wait_time=3, content_select
             '#content_views', '.htmledit_views',
             # 博客园
             '.postBody', '.post-body', '#cnblogs_post_body',
+            # 百度百科（新版 #root 布局，class 带 hash 后缀，用稳定 JS 钩子 ID）
+            '#J-lemma-main-wrapper',
             # 通用
             '.entry-content', '.post', '.article',
         ]
@@ -198,14 +227,14 @@ async def _fetch_with_page(page, url, timeout=30000, wait_time=3, content_select
         try:
             await page.wait_for_selector(combined_selector, timeout=10000)
             content_loaded = True
-        except:
+        except Exception:
             pass
 
         # 如果没有匹配的内容元素，等待 networkidle
         if not content_loaded:
             try:
                 await page.wait_for_load_state("networkidle", timeout=10000)
-            except:
+            except Exception:
                 pass
 
         # 额外等待动态内容渲染（增加到 3 秒）
@@ -237,6 +266,51 @@ async def _fetch_with_page(page, url, timeout=30000, wait_time=3, content_select
         return {'success': False, 'url': url, 'original_url': url, 'error': str(e)}
 
 
+async def _fetch_with_retry(make_page, url, timeout, content_selector=None):
+    """带重试与总超时兜底的抓取。单条与批量两条路径共用，避免行为不一致。
+
+    Args:
+        make_page: 协程函数，每次调用返回一个全新 page（重试时页面可能已损坏，须新建）
+        url: 抓取 URL
+        timeout: page 内操作超时（毫秒）
+        content_selector: 站点专属正文容器选择器，透传给 _fetch_with_page
+
+    Returns:
+        tuple: (result, page) —— 最后结果 + 末次使用的 page（由调用方关闭）
+    """
+    page = None
+    last_result = None
+    for attempt in range(1, MAX_FETCH_RETRIES + 1):
+        if page is not None:
+            await close_page_async(page)
+            page = None
+        try:
+            page = await make_page()
+        except Exception as e:
+            last_result = {'success': False, 'url': url, 'original_url': url,
+                           'error': f'无法创建页面: {e}'}
+            break
+
+        try:
+            last_result = await asyncio.wait_for(
+                _fetch_with_page(page, url, timeout, content_selector=content_selector),
+                timeout=FETCH_TOTAL_TIMEOUT
+            )
+        except asyncio.TimeoutError:
+            last_result = {'success': False, 'url': url, 'original_url': url,
+                           'error': f'抓取超时(>{FETCH_TOTAL_TIMEOUT}s)'}
+
+        if not _is_retryable(last_result):
+            break  # 成功或结论性失败，无需再试
+
+        wait = FETCH_RETRY_BASE_WAIT * (2 ** (attempt - 1))
+        print(f"  尝试 {attempt}/{MAX_FETCH_RETRIES} 失败，{wait:.0f}s 后重试: "
+              f"{url[:50]}... ({last_result.get('error', '')})", file=sys.stderr)
+        await asyncio.sleep(wait)
+
+    return last_result, page
+
+
 # ============ 公开API ============
 
 async def fetch_url_async(url, timeout=30000, wait_time=2, content_selector=None):
@@ -257,11 +331,10 @@ async def fetch_url_async(url, timeout=30000, wait_time=2, content_selector=None
 
     page = None
     try:
-        page = await get_page_async(browser, timeout=timeout)
-        if not page:
-            return {'success': False, 'url': url, 'original_url': url, 'error': '无法创建页面'}
+        async def make_page():
+            return await get_page_async(browser, timeout=timeout)
 
-        result = await _fetch_with_page(page, url, timeout, wait_time, content_selector)
+        result, page = await _fetch_with_retry(make_page, url, timeout, content_selector)
         return result
 
     finally:
@@ -270,7 +343,7 @@ async def fetch_url_async(url, timeout=30000, wait_time=2, content_selector=None
         await close_browser_async(browser, playwright, keep_running=True)
 
 
-async def fetch_urls_async(urls, save_dir=None, timeout=30000, workers=4):
+async def fetch_urls_async(urls, save_dir=None, timeout=30000, workers=4, content_selector=None):
     """并行抓取多个URL（异步）
 
     复用 _fetch_with_page 核心逻辑，共享 browser/context。
@@ -280,6 +353,7 @@ async def fetch_urls_async(urls, save_dir=None, timeout=30000, workers=4):
         save_dir: 保存目录
         timeout: 超时时间（毫秒）
         workers: 并发数
+        content_selector: 站点专属正文容器选择器（CSS），透传给单条抓取
 
     Returns:
         list: 抓取结果列表
@@ -314,16 +388,19 @@ async def fetch_urls_async(urls, save_dir=None, timeout=30000, workers=4):
     semaphore = asyncio.Semaphore(workers)
 
     async def fetch_one(url, idx):
-        """单个URL抓取（复用 _fetch_with_page）"""
+        """单个URL抓取（复用 _fetch_with_retry）"""
         async with semaphore:
             page = None
             try:
-                page = await context.new_page()
-                page.set_default_timeout(timeout)
-
                 print(f"抓取 [{idx+1}/{len(filtered_urls)}]: {url[:50]}...", file=sys.stderr)
 
-                result = await _fetch_with_page(page, url, timeout)
+                async def make_page():
+                    p = await context.new_page()
+                    p.set_default_timeout(timeout)
+                    return p
+
+                # 内含重试与总时长兜底，避免网络抖动丢结果、挂起卡死进程
+                result, page = await _fetch_with_retry(make_page, url, timeout, content_selector)
 
                 if result.get('success') and save_dir:
                     save_result_to_markdown(result, save_dir)

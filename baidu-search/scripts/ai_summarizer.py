@@ -13,7 +13,10 @@ import os
 import re
 import glob
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+try:
+    sys.stdout.reconfigure(encoding='utf-8')
+except Exception:
+    pass
 
 try:
     import requests
@@ -25,19 +28,26 @@ except ImportError:
 def get_api_config():
     """获取 LLM API 配置"""
     api_key = os.environ.get('LLM_API_KEY') or os.environ.get('OPENAI_API_KEY') or os.environ.get('ANTHROPIC_API_KEY')
-    api_base = os.environ.get('LLM_API_BASE') or os.environ.get('OPENAI_API_BASE') or 'https://api.openai.com/v1'
-    model = os.environ.get('LLM_MODEL') or os.environ.get('OPENAI_MODEL') or 'gpt-3.5-turbo'
+    api_base = (os.environ.get('LLM_API_BASE')
+                or os.environ.get('OPENAI_API_BASE')
+                or os.environ.get('OPENAI_BASE_URL')
+                or 'https://api.openai.com/v1')
+    model = (os.environ.get('LLM_MODEL')
+             or os.environ.get('OPENAI_MODEL')
+             or os.environ.get('MODEL_NAME')
+             or 'gpt-3.5-turbo')
 
     return api_key, api_base, model
 
 
 def read_file(filepath):
-    """读取文件内容"""
+    """读取文件内容；失败返回 None（保持返回类型单一）"""
     try:
         with open(filepath, 'r', encoding='utf-8') as f:
             return f.read()
     except Exception as e:
-        return None, str(e)
+        print(f"读取文件失败 {filepath}: {e}", file=sys.stderr)
+        return None
 
 
 def read_directory(dir_path, pattern='*.txt'):
