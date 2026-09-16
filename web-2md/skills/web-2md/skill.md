@@ -146,8 +146,9 @@ web_2md/
 
 ## 常见问题
 
+- **知乎专栏只抓到"推荐阅读"、正文为空**：匿名访问知乎会弹登录 modal 遮挡正文，旧版会取到页面底部的"推荐阅读"区。脚本已内置自动关闭弹窗（`svg.Icon--close` 等）+ 滚动触发懒加载，若仍失效通常是知乎改版换了弹窗按钮，更新 `SITE_PROFILES['zhuanlan.zhihu.com']['dismiss_selectors']`
 - **图片 0 下载**：通常是站点改版导致选择器失效，检查 `SITE_PROFILES`；或图片走特殊协议
 - **图片描述 0 生成**：检查 `SP_TOKEN` 环境变量是否配置(skill 不内置 token,需用户自行设置 env);讯飞网关 503 时会自动跳过该图(降级为仅图片引用)
-- **正文为空**：页面可能是纯 SPA 渲染，可尝试增加 `wait_for_timeout` 等待时间
+- **正文为空**：页面可能是纯 SPA 渲染，可尝试增加 `wait_for_timeout` 等待时间；也可给该站 profile 加 `scroll_lazy: True` 触发懒加载
 - **OCR 慢**：54 张图约需 3-8 分钟(逐张调 API + 并发3),耐心等待
 - **抓取超时**：Playwright 首次启动较慢，单篇正常耗时 30-60 秒(不含 OCR)
