@@ -24,22 +24,22 @@ import socket
 import subprocess
 import shutil
 
-# 统一调试端口（所有插件共用）
-CHROME_DEBUG_PORT = 9222
+# 统一调试端口（所有插件共用），支持 CHROME_DEBUG_PORT 环境变量覆盖以支持多实例并发
+CHROME_DEBUG_PORT = int(os.environ.get('CHROME_DEBUG_PORT', '9222'))
 
-# Chrome配置目录
+# Chrome配置目录（按端口隔离 profile，避免并发实例冲突）
 if sys.platform == 'win32':
     CHROME_USER_DATA_DIR = os.path.join(os.environ['LOCALAPPDATA'], 'Google', 'Chrome', 'User Data')
-    TEMP_CHROME_DIR = os.path.join(os.environ['TEMP'], 'chrome-debug-profile')
+    TEMP_CHROME_DIR = os.path.join(os.environ['TEMP'], f'chrome-debug-profile-{CHROME_DEBUG_PORT}')
 else:
     CHROME_USER_DATA_DIR = os.path.expanduser('~/.config/google-chrome')
-    TEMP_CHROME_DIR = '/tmp/chrome-debug-profile'
+    TEMP_CHROME_DIR = f'/tmp/chrome-debug-profile-{CHROME_DEBUG_PORT}'
 
 # 需要复制的配置目录
 COPY_DIRS = ['Default', 'Profile 1', 'Profile 2']
 
-# Chrome进程PID文件
-CHROME_PID_FILE = os.path.join(os.environ.get('TEMP', '/tmp'), '.chrome_debug_pid')
+# Chrome进程PID文件（按端口区分）
+CHROME_PID_FILE = os.path.join(os.environ.get('TEMP', '/tmp'), f'.chrome_debug_pid_{CHROME_DEBUG_PORT}')
 
 # 尝试导入异步 Playwright
 try:
@@ -48,6 +48,65 @@ try:
 except ImportError:
     HAS_PLAYWRIGHT = False
     print("警告: Playwright未安装，请运行 pip install playwright && playwright install chromium", file=sys.stderr)
+
+
+# ============ 跨进程单实例互斥锁 ============
+# 所有脚本共享同一个 CDP Chrome(9222)，并发会互相干扰页面。
+# 用文件锁限制同一时刻只允许一个实例使用 Chrome，其余直接拒绝。
+
+import atexit
+
+_INSTANCE_LOCK_PATH = os.path.join(
+    os.environ.get('TEMP', '/tmp'),
+    '.claude_chrome_instance.lock_client'
+)
+_instance_lock_handle = None
+
+
+def try_acquire_instance_lock():
+    """尝试获取跨进程单实例锁。
+
+    Returns:
+        True: 获取成功，本实例可继续；False: 已有实例运行，调用方应拒绝执行。
+    """
+    global _instance_lock_handle
+    if _instance_lock_handle is not None:
+        return False  # 本进程已持有锁，重复调用视为被占用
+
+    try:
+        if sys.platform == 'win32':
+            import msvcrt
+            handle = open(_INSTANCE_LOCK_PATH, 'a+')
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            handle.seek(0)
+            handle.truncate()
+            handle.write(str(os.getpid()))
+            handle.flush()
+        else:
+            import fcntl
+            handle = open(_INSTANCE_LOCK_PATH, 'w')
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return False  # 锁已被其他进程持有
+    except Exception:
+        return False
+
+    _instance_lock_handle = handle
+    atexit.register(_release_instance_lock)
+    return True
+
+
+def _release_instance_lock():
+    """释放单实例锁（进程退出自动调用）"""
+    global _instance_lock_handle
+    if _instance_lock_handle is None:
+        return
+    try:
+        _instance_lock_handle.close()  # close 即释放 msvcrt/fcntl 锁
+    except Exception:
+        pass
+    _instance_lock_handle = None
 
 
 # ============ 同步辅助函数（启动Chrome进程） ============
@@ -73,7 +132,7 @@ def check_port_in_use(port):
         result = sock.connect_ex(('127.0.0.1', port))
         sock.close()
         return result == 0
-    except:
+    except Exception:
         return False
 
 
@@ -91,7 +150,7 @@ def is_user_chrome_running():
         )
         chrome_count = result.stdout.lower().count('chrome.exe')
         return chrome_count > 0 and not is_chrome_debug_running()
-    except:
+    except Exception:
         return False
 
 
@@ -105,7 +164,7 @@ def copy_chrome_profile():
             return TEMP_CHROME_DIR
         try:
             shutil.rmtree(TEMP_CHROME_DIR)
-        except:
+        except Exception:
             pass
 
     os.makedirs(TEMP_CHROME_DIR, exist_ok=True)
@@ -212,7 +271,7 @@ def kill_debug_chrome():
             with open(CHROME_PID_FILE, 'r') as f:
                 pid = int(f.read().strip())
             os.remove(CHROME_PID_FILE)
-        except:
+        except Exception:
             pass
 
     if not pid and is_chrome_debug_running():
@@ -227,7 +286,7 @@ def kill_debug_chrome():
                     if len(parts) >= 5:
                         pid = int(parts[-1])
                         break
-        except:
+        except Exception:
             pass
 
     if pid:
@@ -329,7 +388,7 @@ async def close_page_async(page):
     if page:
         try:
             await page.close()
-        except:
+        except Exception:
             pass
 
 
