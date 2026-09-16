@@ -15,7 +15,7 @@ argument-hint: <搜索关键词>
 
 | 功能 | 说明 |
 |-----|------|
-| 大规模搜索 | 默认搜索 150 条结果 |
+| 大规模搜索 | 默认搜索 50 条结果 |
 | 智能筛选 | 按质量分数自动筛选前 35% 进行抓取 |
 | Session 管理 | 每次搜索生成唯一 session_id，文件独立保存 |
 | 内容抓取 | 使用 Playwright 渲染动态页面 |
@@ -39,7 +39,7 @@ python baidu_search.py <关键词> [选项]
 
 参数:
   <关键词>           搜索关键词
-  -n, --limit        搜索结果数量 (默认150)
+  -n, --limit        搜索结果数量 (默认50)
   -t, --top-percent  按分数筛选前N%的结果进行抓取 (默认35)
   --min-score        最低分数阈值 (默认1.0)
   -o, --output       保存目录 (默认 ~/Downloads/baidu_search/<session_id>)
@@ -53,7 +53,7 @@ python baidu_search.py <关键词> [选项]
 ## 使用示例
 
 ```bash
-# 默认搜索：150条结果，自动抓取前35%
+# 默认搜索：50条结果，自动抓取前35%
 python baidu_search.py "人工智能发展趋势"
 
 # 搜索100条，抓取分数前40%
