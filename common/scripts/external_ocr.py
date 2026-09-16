@@ -87,6 +87,8 @@ def call_api(image_base64, mime_type, model, api_key, prompt):
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}",
+        # 部分网关(如 Cloudflare 保护)会拦截 urllib 默认 UA(Python-urllib/x.x, error 1010)
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
     }
 
     url = f"{api_base}/chat/completions"
