@@ -60,6 +60,12 @@
       "source": "./common",
       "description": "公共模块：异步Chrome管理、网页抓取、内容解析、Markdown生成。",
       "skills": ["./skills/web-fetcher"]
+    },
+    {
+      "name": "wps-docs",
+      "source": "./wps-docs",
+      "description": "WPS 云文档读写：读取正文、文末追加、精确查找替换并保存。",
+      "skills": ["./skills/wps-docs"]
     }
   ]
 }
