@@ -1,0 +1,32 @@
+{
+  "name": "wps-docs",
+  "description": "WPS 云文档（kdocs/金山文档）读写插件：通过 WPS 网页版 JSAPI 读取正文、追加段落、查找替换并保存。支持智能文档（otl）、文字文档（docx/wps）等以 WPS 文字引擎打开的文档，复用 common 的统一 Chrome 会话与登录态。",
+  "version": "0.1.0",
+  "author": {
+    "name": "sjerold",
+    "url": "https://github.com/sjerold"
+  },
+  "repository": "https://github.com/sjerold/cc-skills.git",
+  "license": "MIT",
+  "skills": [
+    "./skills/wps-docs"
+  ],
+  "keywords": [
+    "wps",
+    "kdocs",
+    "金山文档",
+    "云文档",
+    "在线文档",
+    "智能文档",
+    "otl",
+    "jsapi",
+    "playwright",
+    "文档读写"
+  ],
+  "dependencies": [
+    {
+      "name": "common",
+      "version": ">=2.6.0"
+    }
+  ]
+}
