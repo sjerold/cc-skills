@@ -10,6 +10,7 @@
 """
 
 import asyncio
+import difflib
 import json
 import os
 import sys
@@ -155,6 +156,85 @@ JS_SAVE = r"""async () => {
     return out;
 }"""
 
+# 最小化改稿：一次只做一个「插入 / 删除 / 替换」原子操作。
+# 修订模式下 Range 坐标会多出不可见的修订标记，因此用左侧上下文逐个试探偏移，
+# 命中后再写入；写完整篇回读，必须与预期文本逐字相等。
+JS_EDIT_OP = r"""async (p) => {
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+    const doc = await window.WPSOpenApi.Application.ActiveDocument;
+    const content = await doc.Content;
+    const text = String(await content.Text);
+    if (text !== p.text) return {error: 'text_mismatch', actual: text.length, expected: p.text.length};
+    const end = await content.End;
+    const overhead = Math.max(0, end - text.length);
+    const L = p.old.length;
+    const W = 20;
+    const ctxL = Math.min(W, p.start);
+    if (ctxL === 0) return {error: 'unsupported_at_document_start'};
+    const wantLeft = text.slice(p.start - ctxL, p.start);
+    let start = -1;
+    for (let d = 0; d <= overhead + 40; d++) {
+        const cand = p.start + d;
+        if (cand - ctxL < 0 || cand + L > end) continue;
+        if (L > 0) {
+            const s = String(await (await doc.Range(cand, cand + L)).Text);
+            if (s !== p.old) continue;
+        }
+        const left = String(await (await doc.Range(cand - ctxL, cand)).Text);
+        if (left === wantLeft) { start = cand; break; }
+    }
+    if (start < 0) return {error: 'no_range_match', overhead: overhead, start: p.start};
+    const range = await doc.Range(start, start + L);
+    range.Text = p.new;
+    try {
+        await window.WPSOpenApi.save();
+    } catch (e) {
+        return {error: 'save:' + String(e)};
+    }
+    await sleep(1200);
+    const after = String(await (await doc.Content).Text);
+    return {rangeStart: start, overhead: overhead, ok: after === p.expect, afterLen: after.length};
+}"""
+
+JS_REJECT_ALL = r"""async () => {
+    const doc = await window.WPSOpenApi.Application.ActiveDocument;
+    const revs = await doc.Revisions;
+    const n = await revs.Count;
+    if (n > 0) { await revs.RejectAll(); }
+    try { await window.WPSOpenApi.save(); } catch (e) {}
+    await new Promise(r => setTimeout(r, 1500));
+    const after = String(await (await doc.Content).Text);
+    return {rejected: n, afterLen: after.length, revs: await (await doc.Revisions).Count};
+}"""
+
+
+def minimal_ops(orig, pairs):
+    """把每处 old→new 拆成最小编辑操作，并按文档位置倒序排列。
+
+    倒序是关键：已写入的修订标记永远在本操作的右侧，
+    这样左侧上下文才不会被「被删除但仍占坐标的文字」污染。
+    """
+    ops = []
+    for idx, (old, new) in enumerate(pairs, 1):
+        count = orig.count(old)
+        if count != 1:
+            raise WpsError("第 %d 处原文匹配 %d 次（须唯一）：%r" % (idx, count, old[:30]))
+        base = orig.find(old)
+        sm = difflib.SequenceMatcher(None, old, new, autojunk=False)
+        for tag, i1, i2, j1, j2 in sm.get_opcodes():
+            if tag == "equal":
+                continue
+            ops.append({
+                "edit": idx,
+                "kind": tag,
+                "start": base + i1,
+                "end": base + i2,
+                "old": old[i1:i2],
+                "new": new[j1:j2],
+            })
+    ops.sort(key=lambda x: x["start"], reverse=True)
+    return ops
+
 
 class WpsError(RuntimeError):
     pass
@@ -297,6 +377,37 @@ class WpsSession:
 
     async def save(self):
         return await self.page.evaluate(JS_SAVE)
+
+    async def patch(self, pairs, dry_run=False):
+        """按最小化 diff 逐段改稿，每段单独成为一条修订。
+
+        pairs: [(old, new), ...]，每处 old 必须在正文中唯一。
+        每改一步都回读全文比对，任一不符立即返回失败（调用方负责 RejectAll 回滚）。
+        """
+        text = await self.text()
+        ops = minimal_ops(text, pairs)
+        if dry_run:
+            return {"dry_run": True, "ops": ops, "before_len": len(text)}
+        current = text
+        results = []
+        for n, op in enumerate(ops, 1):
+            nxt = current[:op["start"]] + op["new"] + current[op["end"]:]
+            res = await self.page.evaluate(JS_EDIT_OP, {
+                "text": current,
+                "start": op["start"],
+                "old": op["old"],
+                "new": op["new"],
+                "expect": nxt,
+            })
+            ok = not res.get("error") and bool(res.get("ok"))
+            results.append(dict(op, n=n, ok=ok, res=res))
+            if not ok:
+                return {"ok": False, "failed_at": n, "ops": results, "after_len": len(current)}
+            current = nxt
+        return {"ok": True, "ops": results, "after_len": len(current)}
+
+    async def reject_all(self):
+        return await self.page.evaluate(JS_REJECT_ALL)
 
 
 def ensure_editable(info):

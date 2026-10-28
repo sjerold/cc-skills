@@ -136,6 +136,44 @@ async def cmd_replace(args):
         return 0 if ok else 1
 
 
+async def cmd_patch(args):
+    """按最小化 diff 改稿：一处 old→new 会拆成若干 insert/delete/replace 原子操作。
+
+    每处 old 必须在正文中唯一；任一步回读校验不通过就整批回滚，不留半改状态。
+    """
+    with open(args.pairs, encoding="utf-8") as f:
+        raw = json.load(f)
+    # pairs.json 兼容两种写法：[[old, new], ...] 与 [{old, new}, ...]
+    pairs = []
+    for item in raw:
+        if isinstance(item, dict):
+            pairs.append((item["old"], item["new"]))
+        else:
+            pairs.append((item[0], item[1]))
+    async with WpsSession(**session_kwargs(args, False)) as s:
+        await s.open(args.url)
+        info = await s.info()
+        ensure_editable(info)
+        before = await s.text()
+        backup = save_backup(args.url, before)
+        try:
+            result = await s.patch(pairs, dry_run=args.dry_run)
+        except WpsError as exc:
+            # old 不唯一等前置错误：还没写入，直接报错即可
+            emit({"ok": False, "action": "patch", "url": args.url, "error": str(exc)})
+            return 1
+        if args.dry_run:
+            emit({"ok": True, "action": "patch", "url": args.url,
+                  "before_len": len(before), **result})
+            return 0
+        if not result.get("ok"):
+            # 中途失败：拒绝本次产生的全部修订，回到改稿前
+            result["rollback"] = await s.reject_all()
+        emit({"ok": bool(result.get("ok")), "action": "patch", "url": args.url,
+              "backup": backup, "before_len": len(before), **result})
+        return 0 if result.get("ok") else 1
+
+
 async def cmd_login(args):
     profile = args.profile_dir or default_profile_dir()
     async with WpsSession(profile_dir=profile, headless=False, timeout=args.timeout) as s:
@@ -204,6 +242,12 @@ def build_parser():
         help="匹配到多处时全部替换（默认拒绝，只允许唯一匹配）",
     )
     sp.set_defaults(func=cmd_replace)
+
+    sp = sub.add_parser("patch", help="按最小化 diff 逐段改稿（修订模式下每段单独成一条修订）")
+    common(sp)
+    sp.add_argument("pairs", help="JSON 文件：[[old, new], ...] 或 [{old, new}, ...]")
+    sp.add_argument("--dry-run", action="store_true", help="只输出将要执行的原子操作，不写入")
+    sp.set_defaults(func=cmd_patch)
 
     sp = sub.add_parser("login", help="打开窗口扫码登录 WPS（保持 profile）")
     sp.add_argument("url", help="用来登录的文档 URL")
