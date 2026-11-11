@@ -1,0 +1,4 @@
+pillow
+numpy
+# 可选：装上后自动启用页码 OCR 校验；不装也能正常切分
+rapidocr_onnxruntime

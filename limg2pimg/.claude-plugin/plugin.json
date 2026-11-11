@@ -1,0 +1,22 @@
+{
+  "name": "limg2pimg",
+  "description": "长图按页切分：把 PDF 滚动截屏得到的长图，按页眉 / 页码 / 空白缝智能切成单页图片，并自动去除滚动截屏的拼接残影。",
+  "version": "1.0.0",
+  "license": "MIT",
+  "skills": [
+    "./skills/limg2pimg"
+  ],
+  "keywords": [
+    "image",
+    "split",
+    "pdf",
+    "screenshot",
+    "long-image",
+    "page",
+    "长图",
+    "切分",
+    "分页",
+    "截图",
+    "OCR"
+  ]
+}

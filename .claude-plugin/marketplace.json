@@ -56,6 +56,12 @@
       "skills": ["./skills/docx-img2md"]
     },
     {
+      "name": "limg2pimg",
+      "source": "./limg2pimg",
+      "description": "长图按页切分：PDF滚动截屏长图按页眉/页码/空白缝切成单页图片，自动去拼接残影。",
+      "skills": ["./skills/limg2pimg"]
+    },
+    {
       "name": "common",
       "source": "./common",
       "description": "公共模块：异步Chrome管理、网页抓取、内容解析、Markdown生成。",
