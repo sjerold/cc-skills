@@ -265,10 +265,10 @@ class LongImageSplitter:
         return []
 
     # -- 第二步：顶部 App 栏
-    def detect_top(self):
+    def detect_top(self, headers=None):
         lim = int(self.h * 0.05)
-        # 顶部文本带数量：状态栏 + 标题栏 + 工具栏通常是 3 段以上
-        cnt, y, inside = 0, 0, False
+        # 顶部文本带数量：状态栏 + 标题栏，带工具栏时是 3 段以上
+        cnt, y, inside, band2_end = 0, 0, False, 0
         while y < lim:
             has = self.ink[y] > 2
             if has and not inside:
@@ -276,8 +276,10 @@ class LongImageSplitter:
                 inside = True
             elif not has:
                 inside = False
+                if cnt == 2:
+                    band2_end = y
             y += 1
-        if cnt < 3:
+        if cnt < 2:
             return 0
         first = self.ink[:max(1, int(self.h * 0.02))].max()
         if first <= 2:
@@ -286,6 +288,27 @@ class LongImageSplitter:
             if b < lim and (b - a + 1) >= 200:
                 self.log(f"[顶部] 检测到 App 工具栏，内容起点 {b + 1}")
                 return b + 1
+        # 有些截图不显示 WPS 工具栏，App 界面只剩状态栏 + 标题栏。它与正文之间
+        # 的缝只有 100~150px —— 比页间缝(120)还窄，压根不在 self.gaps 里，上面
+        # 那条判据必然落空，整条手机界面就被当成首页内容留下来（实测首页多出
+        # 330px）。改用页眉模板倒推：往下扫，第一个长宽都对得上页眉的窄带就是
+        # 正文起点。只匹配到页眉本身，即便误命中，丢的也只是它上方的留白。
+        if headers and band2_end:
+            mh = float(np.median([c["h"] for c in headers]))
+            mw = float(np.median([c["width"] for c in headers]))
+            y = band2_end
+            for _ in range(6):
+                band = first_band_after(self.gray, y, lim, self.thr)
+                if not band:
+                    break
+                ba, bb = band
+                x0, x1 = band_extent(self.gray, ba, bb, self.thr)
+                if (bb - ba + 1 <= self.BAND_MAX_H
+                        and 0.7 * mh <= bb - ba + 1 <= 1.4 * mh
+                        and 0.8 * mw <= x1 - x0 + 1 <= 1.25 * mw):
+                    self.log(f"[顶部] 无工具栏，按页眉模板反推，内容起点 {ba}")
+                    return ba
+                y = bb + 1
         return 0
 
     # -- 第三步：末页页脚与底部 UI
@@ -307,7 +330,7 @@ class LongImageSplitter:
     # -- 汇总分页边界
     def compute_bounds(self):
         headers = self.detect_headers()
-        top = self.detect_top()
+        top = self.detect_top(headers)
         last_header_y = headers[-1]["band"][0] if headers else None
         bottom = self.detect_bottom(last_header_y)
 
