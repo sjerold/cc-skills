@@ -227,8 +227,16 @@ class LongImageSplitter:
 
         for i in range(n):
             for j in range(i + 1, n):
-                sim = cosine(cands[i]["sig"], cands[j]["sig"])
-                if sim >= self.HEAD_SIM:
+                # 同一条页眉的两次出现，长宽必然接近。只靠列剖面的余弦相似度，
+                # 会把「正文首行的加粗标题」这类轮廓相近的带并进来；一旦并入，
+                # 组内间距就出现 100~200px 的个例，被页高一致性检查整组否掉，
+                # 于是退而选次优组（实测退成了页脚行，4 页切出 2.6 页的页高）。
+                ci, cj = cands[i], cands[j]
+                if abs(ci["h"] - cj["h"]) > 12:
+                    continue
+                if abs(ci["width"] - cj["width"]) > self.w * 0.08:
+                    continue
+                if cosine(ci["sig"], cj["sig"]) >= self.HEAD_SIM:
                     union(i, j)
 
         groups = {}
