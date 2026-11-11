@@ -245,32 +245,46 @@ class LongImageSplitter:
         groups = sorted(groups.values(), key=len, reverse=True)
 
         # 页眉组的附加约束：成员高度接近、水平宽度接近，且间距足够大
-        best = None
-        for g in groups:
+        def group_ok(g):
             if len(g) < 3:
-                continue
+                return False
             hs = [c["h"] for c in g]
             ws = [c["width"] for c in g]
             if max(hs) - min(hs) > 12:
-                continue
+                return False
             if max(ws) - min(ws) > self.w * 0.08:
-                continue
+                return False
             # 页眉是一整行标题，宽度必然可观。21px 宽的小短线是页码、项目符号
             # 之类的噪声，误认成页眉会把整张图切塌（曾把 28 页的图切成 6 页）。
             if min(ws) < 0.15 * self.w:
-                continue
-            ys = sorted(c["band"][0] for c in g)
-            if min(np.diff(ys)) < 0.5 * float(np.median(np.diff(ys))):
-                continue
-            best = g
-            break
+                return False
+            return spacing_ok([c["band"][0] for c in g])
 
-        self.meta["header_count"] = len(best) if best else 0
-        if best:
-            self.log(f"[页眉] 命中 {len(best)} 处，模板高度 {best[0]['h']}px，"
-                     f"宽度 {best[0]['width']}px")
-            return sorted(best, key=lambda c: c["gap"][0])
-        return []
+        def spacing_ok(ys):
+            ys = sorted(ys)
+            if len(ys) < 2:
+                return True
+            d = np.diff(ys)
+            return min(d) >= 0.5 * float(np.median(d))
+
+        passing = [g for g in groups if group_ok(g)]
+        if not passing:
+            return []
+        # 一份文档可能换过页眉（如封面段用"跨境数字支付平台 区块链对账接口"、
+        # 正文段改用"数字人民币 区块链规范 区块链对账接口"）。只取最大那一组，
+        # 另一个模板负责的页就没有分页线，会并成一张几页高的图（实测 4 页粘成
+        # 一张 8224px）。所以按组大小依次并入，只有并入后整体间距仍然规整才收 ——
+        # 页脚行那类"长度规整但位置在页中"的组会破坏间距，自然被挡在外面。
+        best = sorted(passing[0], key=lambda c: c["band"][0])
+        for g in passing[1:]:
+            trial = sorted(best + g, key=lambda c: c["band"][0])
+            if spacing_ok([c["band"][0] for c in trial]):
+                best = trial
+
+        self.meta["header_count"] = len(best)
+        self.log(f"[页眉] 命中 {len(best)} 处（{len(passing)} 个模板），"
+                 f"模板高度 {best[0]['h']}px，宽度 {best[0]['width']}px")
+        return sorted(best, key=lambda c: c["gap"][0])
 
     # -- 第二步：顶部 App 栏
     def detect_top(self, headers=None):
