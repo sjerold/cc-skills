@@ -151,6 +151,23 @@ class LongImageSplitter:
         if self.verbose:
             print(msg)
 
+    # -- 孤立小带：页码、项目符号、装饰短线
+    def _is_stray_band(self, a, b):
+        """宽度远小于页面宽度的窄带。
+
+        页眉是整行标题，宽度必然可观；这类小带被误当页眉时，
+        它所在的那条缝就切不出页，一整页会和下一页粘在一起。"""
+        x0, x1 = band_extent(self.gray, a, b, self.thr)
+        return (x1 - x0 + 1) < max(24, int(self.w * 0.05))
+
+    def _blank_run_before(self, y, limit):
+        """y 上方紧邻的连续空白行区间 (y0, y1)；向上扫描不越到 limit。"""
+        blank = self.ink <= max(2, int(self.w * 0.003))
+        t = y - 1
+        while t > limit and blank[t]:
+            t -= 1
+        return t + 1, y - 1
+
     # -- 第一步：页眉聚类
     def detect_headers(self):
         cands = []
@@ -158,17 +175,39 @@ class LongImageSplitter:
             band = first_band_after(self.gray, b + 1, b + 1 + 400, self.thr)
             if not band:
                 continue
+            gap = (a, b)
+            # 缝后第一个内容带未必是页眉：页码也常落在缝的下沿，而且常被行投影
+            # 拆成「5px 上沿 + 13px 字形」两段（实测）。把它当页眉，这一页就切不出来，
+            # 会和下一页粘成 1.5 页。所以连续跳过这类孤立小带，直到遇到实质内容带。
+            for _ in range(4):
+                if not self._is_stray_band(*band):
+                    break
+                nxt = first_band_after(self.gray, band[1] + 1, b + 1 + 400, self.thr)
+                if not nxt:
+                    break
+                band = nxt
             ba, bb = band
             if bb - ba + 1 > self.BAND_MAX_H:
                 continue
             x0, x1 = band_extent(self.gray, ba, bb, self.thr)
+            # 分界始终取「页眉正上方」那条缝，而不是最初命中的缝
+            run = self._blank_run_before(ba, b)
+            if run[1] >= run[0] and run[1] - run[0] + 1 >= 5:
+                gap = run
             cands.append({
-                "gap": (a, b),
+                "gap": gap,
                 "band": (ba, bb),
                 "h": bb - ba + 1,
                 "width": x1 - x0 + 1,
                 "sig": band_signature(self.gray, ba, bb, self.thr),
             })
+
+        # 同一条页眉可能被多条缝命中（缝中间的噪声小带把一条缝拆成了两条）。
+        # 按页眉位置去重：组内若出现间距 0，页高一致性检查会整组被否掉。
+        uniq = {}
+        for c in cands:
+            uniq.setdefault(c["band"][0], c)
+        cands = [uniq[k] for k in sorted(uniq)]
 
         # 并查集聚类：页眉之间可能因抗锯齿/水印略有差异，
         # 用传递闭包把同一模板的带连成一组。
@@ -207,6 +246,10 @@ class LongImageSplitter:
             if max(hs) - min(hs) > 12:
                 continue
             if max(ws) - min(ws) > self.w * 0.08:
+                continue
+            # 页眉是一整行标题，宽度必然可观。21px 宽的小短线是页码、项目符号
+            # 之类的噪声，误认成页眉会把整张图切塌（曾把 28 页的图切成 6 页）。
+            if min(ws) < 0.15 * self.w:
                 continue
             ys = sorted(c["band"][0] for c in g)
             if min(np.diff(ys)) < 0.5 * float(np.median(np.diff(ys))):
@@ -499,14 +542,17 @@ class LongImageSplitter:
             y += part.height
         return canvas
 
-    def export(self, out_dir, fmt="jpg", quality=92, pad=0):
+    def export(self, out_dir, fmt="jpg", quality=92, pad=0, prefix=""):
         os.makedirs(out_dir, exist_ok=True)
         # 清掉上一轮残留的 p*.jpg：同一份长图重切时若页数变少（改了 --thr 等），
         # 旧的 p15.jpg 会留在目录里，按文件名排序就直接多出几页不存在的内容。
         # 旧清单一起清掉——输出目录默认只留图片。
+        # 多张长图共用同一个输出目录时（flat 模式）文件名带 <图片名>_ 前缀，
+        # 清理必须限定在本图自己的文件上，否则会把别的图切好的页删掉。
         stem = os.path.splitext(os.path.basename(self.path))[0]
         old_manifest = f"{stem}_pages.json"
-        stale = re.compile(r"^p\d+\.(?:jpg|jpeg|png)$", re.IGNORECASE)
+        stale = re.compile(r"^" + re.escape(prefix) + r"p\d+\.(?:jpg|jpeg|png)$",
+                           re.IGNORECASE)
         for name in os.listdir(out_dir):
             if stale.match(name) or name == old_manifest:
                 try:
@@ -521,7 +567,7 @@ class LongImageSplitter:
             # 文件名按阅读顺序编号。文档自身的页码可能从正文才起算（前面有封面、
             # 修订记录），直接拿它命名会和顺序号撞名，所以页码只记进清单。
             # 零填充保证字典序与阅读顺序一致（p02 < p10）。
-            tag = f"p{p['page']:0{digits}d}"
+            tag = f"{prefix}p{p['page']:0{digits}d}"
             out = os.path.join(out_dir, f"{tag}.{fmt}")
             if fmt.lower() in ("jpg", "jpeg"):
                 img.convert("RGB").save(out, quality=quality, subsampling=0)
@@ -580,7 +626,7 @@ def aspect_ratio(path):
     return h / float(w) if w else 0.0
 
 
-def process_one(path, out_dir, args, log):
+def process_one(path, out_dir, args, log, prefix=""):
     sp = LongImageSplitter(path, thr=args.thr, min_gap=args.min_gap,
                            verbose=not args.quiet)
     pages = sp.compute_bounds()
@@ -601,7 +647,8 @@ def process_one(path, out_dir, args, log):
     out_dir = out_dir or os.path.join(
         os.path.dirname(os.path.abspath(path)),
         os.path.splitext(os.path.basename(path))[0] + "_pages")
-    sp.export(out_dir, fmt=args.format, quality=args.quality, pad=args.pad)
+    sp.export(out_dir, fmt=args.format, quality=args.quality, pad=args.pad,
+              prefix=prefix)
     if getattr(args, "manifest", False):
         manifest = sp.save_manifest(out_dir)
         log(f"  → {out_dir}（清单 {os.path.basename(manifest)}）")
@@ -621,7 +668,7 @@ def main():
         description="把 PDF 滚动截屏长图按页切分成单页图片；可传单张图片或整个目录")
     ap.add_argument("input", help="长图路径，或包含多张长图的目录")
     ap.add_argument("--out-dir", default=None,
-                    help="输出根目录（目录模式下每张长图再建一个 <图片名>_pages 子目录）")
+                    help="输出目录（目录模式下默认把所有长图的页平铺进这个目录）")
     ap.add_argument("--ocr", choices=["auto", "on", "off"], default="auto",
                     help="页码识别：auto=装了就开（默认），on=强制，off=关闭")
     ap.add_argument("--min-gap", type=int, default=120, help="页面间最小空白高度（像素）")
@@ -633,6 +680,9 @@ def main():
                     help="关闭拼接残影去重（默认开启）")
     ap.add_argument("--min-aspect", type=float, default=2.0,
                     help="目录模式下只处理高宽比 ≥ 此值的图（默认 2.0，过滤普通图片）")
+    ap.add_argument("--per-dir", action="store_true",
+                    help="目录模式下每张长图单独建 <图片名>_pages 子目录"
+                         "（默认全部页平铺在同一目录，文件名加 <图片名>_ 前缀）")
     ap.add_argument("--manifest", action="store_true",
                     help="额外输出 JSON 清单（默认不输出，输出目录只留图片）")
     ap.add_argument("--quiet", action="store_true")
@@ -656,7 +706,9 @@ def main():
     if not files:
         sys.exit(f"目录下没有图片：{args.input}")
 
-    root = args.out_dir or args.input
+    # 目录模式的默认输出目录：与输入目录同级的 <目录名>_pages，
+    # 不再往源目录里塞子目录，避免把待处理的长图和产出混在一起。
+    root = args.out_dir or (os.path.abspath(args.input).rstrip("\\/") + "_pages")
     results, skipped, failed = [], [], []
     for i, f in enumerate(files, 1):
         name = os.path.basename(f)
@@ -670,11 +722,17 @@ def main():
             skipped.append({"source": name, "aspect": round(ratio, 2)})
             log(f"[{i}/{len(files)}] 跳过 {name}（高宽比 {ratio:.2f}，不是长图）")
             continue
-        out_dir = os.path.join(root, os.path.splitext(name)[0] + "_pages")
+        stem = os.path.splitext(name)[0]
+        # 目录模式默认平铺：所有长图的页都写进同一个目录，文件名加 <图片名>_ 前缀，
+        # 既不会互相覆盖，按文件名排序也仍是阅读顺序（CBETS32_p28 < CBETS33_p01）。
+        if args.per_dir:
+            out_dir, prefix = os.path.join(root, stem + "_pages"), ""
+        else:
+            out_dir, prefix = root, stem + "_"
         log(f"[{i}/{len(files)}] {name}")
         # 单张失败不中断整批：一张损坏的图不该让后面十几张都没机会处理
         try:
-            results.append(process_one(f, out_dir, args, log))
+            results.append(process_one(f, out_dir, args, log, prefix=prefix))
         except Exception as e:
             failed.append({"source": name, "error": f"{type(e).__name__}: {e}"})
             log(f"  ✗ 处理失败：{type(e).__name__}: {e}")
